@@ -126,16 +126,12 @@ class PageManager {
     currentIndex = index;
 
     try {
-      http.get(Uri.parse('$apiUrl/play/$path')).then((value) async {
-        var file = await DefaultCacheManager().getSingleFile(
-          jsonDecode(value.body)['message'],
-        );
+      _audioPlayer.setUrl('$apiUrl/play/$path').then((value) async {
         songMetadataNotifier.value = MetadataNotifier(
           album: songListNotifier.value.songList[index].album,
           artist: songListNotifier.value.songList[index].artist,
           title: songListNotifier.value.songList[index].title,
         );
-        _audioPlayer.setFilePath(file.path);
 
         if (syncing && syncedDevice != deviceId[1] && origin == null) {
           await queueOnExternalDevice(
@@ -259,13 +255,13 @@ class PageManager {
     return List.empty();
   }
 
-  Future<String?> getAlbumArt(int index) async {
+  Future<MemoryImage?> getAlbumArt(int index) async {
     try {
       final filename = songListNotifier.value.songList[index].filename;
       final response = await http.get(Uri.parse("$apiUrl/art/$filename"));
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body)['message'];
+        return MemoryImage(response.bodyBytes);
       } else {
         return null;
       }

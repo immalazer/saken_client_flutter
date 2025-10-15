@@ -73,9 +73,7 @@ class _MyAppState extends State<MyApp> {
                                   builder: (context, snapshot) {
                                     if (snapshot.hasData) {
                                       return CircleAvatar(
-                                        foregroundImage: NetworkImage(
-                                          snapshot.data!,
-                                        ),
+                                        foregroundImage: snapshot.data
                                       );
                                     } else {
                                       return CircleAvatar(
