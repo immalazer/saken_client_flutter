@@ -32,7 +32,6 @@ class PageManager {
   final buttonNotifier = ValueNotifier<ButtonState>(ButtonState.paused);
 
   static const apiUrl = 'http://localhost:8000/api/songs/';
-  static const url = 'https://freepd.com/music/3%20am%20West%20End.mp3';
 
   late AudioPlayer _audioPlayer;
   PageManager() {
@@ -54,15 +53,12 @@ class PageManager {
       macOS: true,
     );
 
-    var file = await DefaultCacheManager().getSingleFile(url);
-
     futureSongs = fetchSongs().then((value) {
       songListNotifier.value = SongListState(songList: value);
       return List.empty();
     });
 
     _audioPlayer = AudioPlayer();
-    await _audioPlayer.setFilePath(file.path);
 
     _audioPlayer.playerStateStream.listen((playerState) {
       final isPlaying = playerState.playing;
