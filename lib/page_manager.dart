@@ -212,9 +212,6 @@ class PageManager {
     currentIndex = index;
     try {
       http.get(Uri.parse('$apiUrl/play/$path')).then((value) async {
-        if (buttonNotifier.value == ButtonState.playing) {
-          pause();
-        }
         var file = await DefaultCacheManager().getSingleFile(
           jsonDecode(value.body)['message'],
         );
