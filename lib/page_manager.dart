@@ -7,6 +7,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:http/http.dart' as http;
+import 'package:mime/mime.dart';
 import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart' as status;
@@ -342,6 +343,7 @@ class PageManager {
 
     if (result != null) {
       File file = File(result.files.single.path!);
+
       try {
         dynamic metadata = readAllMetadata(file, getImage: true);
 
@@ -373,6 +375,37 @@ class PageManager {
         }
 
         request.send();
+      } on MetadataParserException {
+        // Let's see if the file is actually an audio file.
+        final mimeType = lookupMimeType(file.path);
+
+        if (mimeType != null && mimeType.startsWith('audio')) {
+          // Okay, let's just upload it and hope for the best.
+          // Let's just do it without any metadata.
+          try {
+            var postUri = Uri.parse("$apiUrl/songs");
+            var request = http.MultipartRequest("POST", postUri);
+            var filename = Uuid().v4().toString();
+
+            request.fields['title'] = basename(file.path);
+            request.fields['artist'] = "Unknown";
+            request.fields['album'] = "No album";
+            request.fields['duration'] = "00:00";
+            request.fields['filename'] = filename;
+            request.files.add(
+              http.MultipartFile(
+                'file',
+                file.readAsBytes().asStream(),
+                file.lengthSync(),
+                filename: filename,
+              ),
+            );
+
+            request.send();
+          } catch (e) {
+            // Whoops, more things are on fire.
+          }
+        }
       } catch (e) {
         // Something really terrible has happened, and we shouldn't ignore it.
       }
