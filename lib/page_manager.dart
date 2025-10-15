@@ -14,7 +14,7 @@ import 'package:mime/mime.dart';
 import 'package:path/path.dart';
 import 'package:saken/helper/utils.dart';
 import 'package:uuid/uuid.dart';
-import 'package:web_socket_channel/web_socket_channel.dart' as status;
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'model/song_model.dart';
 
 class PageManager {
@@ -126,7 +126,18 @@ class PageManager {
     currentIndex = index;
 
     try {
-      _audioPlayer.setUrl('$apiUrl/play/$path').then((value) async {
+      // We have to ensure that we stop any existing audio source,
+      // otherwise there's a chance that the same audio source is
+      // played when we queue another. Oddly, this only happens on
+      // web and introducing this on mobile & desktop causes regressions
+      // on syncing.
+      if (_audioPlayer.playing && kIsWeb) {
+        _audioPlayer.stop();
+      }
+
+      _audioPlayer.setUrl('$apiUrl/play/$path', preload: false).then((
+        value,
+      ) async {
         songMetadataNotifier.value = MetadataNotifier(
           album: songListNotifier.value.songList[index].album,
           artist: songListNotifier.value.songList[index].artist,
@@ -408,7 +419,7 @@ class PageManager {
 
           switch (value['device_type']) {
             case 'web':
-              deviceIcon = Icons.web_rounded;
+              deviceIcon = Icons.public_rounded;
               break;
             case "pc":
               deviceIcon = Icons.computer_rounded;
@@ -652,7 +663,7 @@ class PageManager {
   }
 
   void subscribe() async {
-    final channel = status.WebSocketChannel.connect(Uri.parse(webSocketUrl));
+    final channel = WebSocketChannel.connect(Uri.parse(webSocketUrl));
 
     try {
       await channel.ready;
@@ -769,7 +780,14 @@ class PageManager {
     String deviceType = "unknown";
     DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
 
-    if (Platform.isAndroid) {
+    if (kIsWeb) {
+      // The web doesnt have a device UID, so use a combination fingerprint as an example
+      WebBrowserInfo webInfo = await deviceInfo.webBrowserInfo;
+      deviceName = "${webInfo.browserName.name} on ${webInfo.platform}";
+      deviceIdentifier =
+          "${webInfo.browserName.name}:${webInfo.hardwareConcurrency.toString()}${webInfo.platform.toString()}${webInfo.maxTouchPoints.toString()}";
+      deviceType = "web";
+    } else if (Platform.isAndroid) {
       AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
       deviceName = androidInfo.name;
       deviceIdentifier = "${androidInfo.name}:${androidInfo.model}";
@@ -779,15 +797,6 @@ class PageManager {
       deviceName = iosInfo.name;
       deviceIdentifier = "${iosInfo.name}:${iosInfo.model}";
       deviceType = "mobile";
-    } else if (kIsWeb) {
-      // The web doesnt have a device UID, so use a combination fingerprint as an example
-      WebBrowserInfo webInfo = await deviceInfo.webBrowserInfo;
-      deviceName = webInfo.vendor!;
-      deviceIdentifier =
-          webInfo.vendor! +
-          webInfo.userAgent! +
-          webInfo.hardwareConcurrency.toString();
-      deviceType = "web";
     } else if (Platform.isLinux) {
       LinuxDeviceInfo linuxInfo = await deviceInfo.linuxInfo;
       deviceName = linuxInfo.id;
