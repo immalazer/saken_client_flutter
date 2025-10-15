@@ -402,7 +402,7 @@ class PageManager {
 
         for (var value in json) {
           if (value['key'] == deviceId[1]) continue;
-          
+
           IconData deviceIcon = Icons.web_rounded;
 
           switch (value['device_type']) {
@@ -585,6 +585,17 @@ class PageManager {
                   artistTextEditingController.text,
                   albumTextEditingController.text,
                 );
+
+                // Update the currently playing song,
+                // since it was edited.
+                if (currentIndex == index) {
+                  songMetadataNotifier.value = MetadataNotifier(
+                    album: albumTextEditingController.text,
+                    artist: artistTextEditingController.text,
+                    title: titleTextEditingController.text,
+                  );
+                }
+
                 Navigator.pop(context);
               },
             ),
