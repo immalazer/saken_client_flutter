@@ -12,11 +12,14 @@ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:mime/mime.dart';
 import 'package:path/path.dart';
+import 'package:saken/helper/utils.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart' as status;
 import 'model/song_model.dart';
 
 class PageManager {
+  bool syncing = false;
+  String syncedDevice = "";
   int currentIndex = 0;
 
   late Future<List<Song>> futureSongs;
@@ -159,7 +162,7 @@ class PageManager {
                 break;
               case 'delete':
                 songListNotifier.value.songList.removeWhere(
-                  (item) => item.filename == eventData['which'],
+                  (item) => item.filename == eventData['filename'],
                 );
                 // This is so dumb, but whatever.
                 songListNotifier.value = SongListState(
@@ -169,21 +172,39 @@ class PageManager {
             }
           } else if (data['channel'] == 'device-controls') {
             final eventData = jsonDecode(data['data']);
+
             if (deviceId.isNotEmpty) {
+              var origin = eventData['origin'] == deviceId[1]
+                  ? null
+                  : eventData['origin'];
+
               if (eventData['deviceId'] == deviceId[1]) {
                 switch (eventData['message']) {
                   case 'pause':
-                    pause();
+                    pause(origin: origin);
                     break;
                   case 'play':
-                    play();
+                    play(origin: origin);
                     break;
                   case 'queue':
-                    var filename = eventData['which'];
+                    var filename = eventData['filename'];
                     var index = songListNotifier.value.songList.indexWhere(
-                      (item) => item.filename == eventData['which'],
+                      (item) => item.filename == eventData['filename'],
                     );
-                    queue(filename, index);
+                    queue(filename, index, origin: origin);
+                    break;
+                  case 'seek':
+                    if (eventData['extra'] != null) {
+                      seek(parseDuration(eventData['extra']), origin: origin);
+                    }
+                  case 'sync':
+                    // We received a sync request, so let's beam something up.
+                    try {
+                      syncing = true;
+                      syncedDevice = eventData['origin'];
+                    } catch (e) {
+                      // We're just don't a simple push here.
+                    }
                     break;
                 }
               }
@@ -207,9 +228,14 @@ class PageManager {
     }
   }
 
-  void queue(String path, int index) async {
+  void queue(String path, int index, {String? origin}) async {
     // Save the current index for use with fast forward and prev.
     currentIndex = index;
+
+    if (syncing && syncedDevice != deviceId[1] && origin == null) {
+      playOnDevice(path, syncedDevice);
+    }
+
     try {
       http.get(Uri.parse('$apiUrl/play/$path')).then((value) async {
         var file = await DefaultCacheManager().getSingleFile(
@@ -221,22 +247,31 @@ class PageManager {
           title: songListNotifier.value.songList[index].title,
         );
         _audioPlayer.setFilePath(file.path);
-        play();
+        play(origin: origin);
       });
     } catch (e) {
       // Something really terrible has happened, and we shouldn't ignore it.
     }
   }
 
-  void play() {
+  void play({String? origin}) {
+    if (syncing && origin == null) {
+      controlDevice('play', syncedDevice);
+    }
     _audioPlayer.play();
   }
 
-  void pause() {
+  void pause({String? origin}) {
+    if (syncing && origin == null) {
+      controlDevice('pause', syncedDevice);
+    }
     _audioPlayer.pause();
   }
 
-  void seek(Duration position) {
+  void seek(Duration position, {String? origin}) {
+    if (syncing && origin == null) {
+      controlDevice('seek', syncedDevice, data: position);
+    }
     _audioPlayer.seek(position);
   }
 
@@ -306,13 +341,14 @@ class PageManager {
     }
   }
 
-  void playExternally(String filename, String deviceId) async {
+  void playOnDevice(String filename, String targetId) async {
     try {
-      var postUri = Uri.parse("$apiUrl/devices/$deviceId");
+      var postUri = Uri.parse("$apiUrl/devices/$targetId");
       var request = http.MultipartRequest("POST", postUri);
 
       request.fields['reason'] = "queue";
-      request.fields['key'] = deviceId;
+      request.fields['origin'] = deviceId[1];
+      request.fields['key'] = targetId;
       request.fields['filename'] = filename;
 
       request.send();
@@ -321,10 +357,42 @@ class PageManager {
     }
   }
 
-  Future<String> showDeviceSelectionDialog(
-    BuildContext context,
-    int index,
-  ) async {
+  Future<void> controlDevice(
+    String command,
+    String targetId, {
+    dynamic data,
+  }) async {
+    // Return early if the targetId is somehow the same as the device ID,
+    // or when the user cancelled the device selection dialogue.
+    if ((deviceId[1] == targetId) || (targetId == "unknown")) return;
+
+    try {
+      var postUri = Uri.parse("$apiUrl/devices/$targetId");
+      var request = http.MultipartRequest("POST", postUri);
+
+      request.fields['reason'] = command;
+      request.fields['origin'] = deviceId[1];
+      request.fields['key'] = targetId;
+      request.fields['filename'] = "unknown";
+      if (data != null) request.fields['extra'] = data.toString();
+
+      request.send();
+
+      if (command == "sync") {
+        syncing = true;
+        syncedDevice = targetId;
+      }
+    } catch (e) {
+      // More fire, yay.
+    }
+  }
+
+  void stopSync() async {
+    syncing = false;
+    syncedDevice = "";
+  }
+
+  Future<String> showDeviceSelectionDialog(BuildContext context) async {
     try {
       final response = await http.get(Uri.parse("$apiUrl/devices"));
       if (response.statusCode == 200 && context.mounted) {
@@ -333,6 +401,8 @@ class PageManager {
         String choice = "";
 
         for (var value in json) {
+          if (value['key'] == deviceId[1]) continue;
+          
           IconData deviceIcon = Icons.web_rounded;
 
           switch (value['device_type']) {
@@ -362,15 +432,39 @@ class PageManager {
           );
         }
 
-        await showDialog<String>(
-          context: context,
-          builder: (BuildContext context) {
-            return SimpleDialog(
-              title: Text("Select device"),
-              children: devices,
-            );
-          },
-        ).then((value) => choice = value ?? "unknown");
+        if (!syncing) {
+          await showDialog<String>(
+            context: context,
+            builder: (BuildContext context) {
+              return SimpleDialog(
+                title: Text("Select device"),
+                children: devices,
+              );
+            },
+          ).then((value) => choice = value ?? "unknown");
+        } else {
+          await showDialog<String>(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: const Text("End sync"),
+                actions: <Widget>[
+                  ElevatedButton(
+                    child: const Text("No"),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  ElevatedButton(
+                    child: const Text("Yes"),
+                    onPressed: () async {
+                      Navigator.pop(context, "cancel");
+                    },
+                  ),
+                ],
+                content: const Text("Stop synchronizing with remote device?"),
+              );
+            },
+          ).then((value) => choice = value ?? syncedDevice);
+        }
 
         return choice;
       } else {
@@ -411,9 +505,9 @@ class PageManager {
       },
     )) {
       case 'external':
-        showDeviceSelectionDialog(context, index).then((value) {
+        showDeviceSelectionDialog(context).then((value) {
           if (value != "unknown") {
-            playExternally(
+            playOnDevice(
               songListNotifier.value.songList[index].filename,
               value,
             );

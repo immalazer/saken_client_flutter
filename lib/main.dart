@@ -57,7 +57,10 @@ class _MyAppState extends State<MyApp> {
                             children: [
                               ListTile(
                                 onLongPress: () {
-                                  _pageManager.showSongOptionDialog(context, index);
+                                  _pageManager.showSongOptionDialog(
+                                    context,
+                                    index,
+                                  );
                                 },
                                 onTap: () {
                                   _pageManager.queue(
@@ -76,7 +79,9 @@ class _MyAppState extends State<MyApp> {
                                       );
                                     } else {
                                       return CircleAvatar(
-                                        child: Text(value.songList[index].title[0]),
+                                        child: Text(
+                                          value.songList[index].title[0],
+                                        ),
                                       );
                                     }
                                   },
@@ -134,10 +139,20 @@ class _MyAppState extends State<MyApp> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     IconButton(
-                      icon: Icon(Icons.speaker_rounded),
-                      tooltip: "Output",
+                      icon: Icon(Icons.sync_alt_rounded),
+                      tooltip: "Sync to device",
                       onPressed: () {
-                      }),
+                        _pageManager.showDeviceSelectionDialog(context).then((
+                          value,
+                        ) {
+                          if (value != 'cancel') {
+                            _pageManager.controlDevice('sync', value);
+                          } else {
+                            _pageManager.stopSync();
+                          }
+                        });
+                      },
+                    ),
                     const Spacer(),
                     Row(
                       children: [
