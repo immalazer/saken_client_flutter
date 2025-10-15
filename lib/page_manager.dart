@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:just_audio/just_audio.dart';
@@ -15,6 +18,7 @@ import 'model/song_model.dart';
 
 class PageManager {
   int currentIndex = 0;
+
   late Future<List<Song>> futureSongs;
 
   final songListNotifier = ValueNotifier<SongListState>(
@@ -38,6 +42,7 @@ class PageManager {
   String webSocketKey = "h3rixwse35kzcnrmdptw";
   String apiUrl = "";
   String webSocketUrl = "";
+  List<String> deviceId = <String>[];
 
   late AudioPlayer _audioPlayer;
   PageManager() {
@@ -52,8 +57,17 @@ class PageManager {
     JustAudioMediaKit.title = 'Saken';
     JustAudioMediaKit.ensureInitialized();
 
-    subscribe();
+    // Fetch relevant device identifier, then register it
+    getDeviceIdentifier().then((value) {
+      deviceId = value;
+      registerDevice(deviceId);
+    });
+
+    // Actually fetch the song list
     refresh();
+
+    // Let the WebSocket know we're here and we're ready
+    subscribe();
 
     _audioPlayer = AudioPlayer();
 
@@ -107,6 +121,10 @@ class PageManager {
     webSocketUrl = "ws://$host:$websocketPort/app/$webSocketKey";
 
     // Re-initialize our connection
+    getDeviceIdentifier().then((value) {
+      deviceId = value;
+      registerDevice(deviceId);
+    });
     subscribe();
     refresh();
   }
@@ -117,11 +135,16 @@ class PageManager {
     try {
       await channel.ready;
 
-      final subscription = {
+      final updatesSubscription = {
         "event": "pusher:subscribe",
         "data": {"channel": "songs-updates"},
       };
-      channel.sink.add(jsonEncode(subscription));
+      final controlsSubscription = {
+        "event": "pusher:subscribe",
+        "data": {"channel": "device-controls"},
+      };
+      channel.sink.add(jsonEncode(updatesSubscription));
+      channel.sink.add(jsonEncode(controlsSubscription));
       channel.stream.listen(
         cancelOnError: true,
         (message) {
@@ -143,6 +166,27 @@ class PageManager {
                   songList: songListNotifier.value.songList,
                 );
                 break;
+            }
+          } else if (data['channel'] == 'device-controls') {
+            final eventData = jsonDecode(data['data']);
+            if (deviceId.isNotEmpty) {
+              if (eventData['deviceId'] == deviceId[1]) {
+                switch (eventData['message']) {
+                  case 'pause':
+                    pause();
+                    break;
+                  case 'play':
+                    play();
+                    break;
+                  case 'queue':
+                    var filename = eventData['which'];
+                    var index = songListNotifier.value.songList.indexWhere(
+                      (item) => item.filename == eventData['which'],
+                    );
+                    queue(filename, index);
+                    break;
+                }
+              }
             }
           }
 
@@ -265,6 +309,81 @@ class PageManager {
     }
   }
 
+  void playExternally(String filename, String deviceId) async {
+    try {
+      var postUri = Uri.parse("$apiUrl/devices/$deviceId");
+      var request = http.MultipartRequest("POST", postUri);
+
+      request.fields['reason'] = "queue";
+      request.fields['key'] = deviceId;
+      request.fields['filename'] = filename;
+
+      request.send();
+    } catch (e) {
+      // More fire, yay.
+    }
+  }
+
+  Future<String> showDeviceSelectionDialog(
+    BuildContext context,
+    int index,
+  ) async {
+    try {
+      final response = await http.get(Uri.parse("$apiUrl/devices"));
+      if (response.statusCode == 200 && context.mounted) {
+        List<Widget> devices = <Widget>[];
+        List<dynamic> json = jsonDecode(response.body);
+        String choice = "";
+
+        for (var value in json) {
+          IconData deviceIcon = Icons.web_rounded;
+
+          switch (value['device_type']) {
+            case 'web':
+              deviceIcon = Icons.web_rounded;
+              break;
+            case "pc":
+              deviceIcon = Icons.computer_rounded;
+              break;
+            case "mobile":
+              deviceIcon = Icons.phone_android_rounded;
+              break;
+          }
+          devices.add(
+            SimpleDialogOption(
+              onPressed: () {
+                Navigator.pop(context, value['key']);
+              },
+              child: Row(
+                children: <Widget>[
+                  Icon(deviceIcon),
+                  SizedBox(width: 12),
+                  Text(value['nickname']),
+                ],
+              ),
+            ),
+          );
+        }
+
+        await showDialog<String>(
+          context: context,
+          builder: (BuildContext context) {
+            return SimpleDialog(
+              title: Text("Select device"),
+              children: devices,
+            );
+          },
+        ).then((value) => choice = value ?? "unknown");
+
+        return choice;
+      } else {
+        throw Exception('Failed to load list of devices.');
+      }
+    } catch (e) {
+      return "unknown";
+    }
+  }
+
   Future<void> showSongOptionDialog(BuildContext context, int index) async {
     switch (await showDialog<String>(
       context: context,
@@ -272,6 +391,12 @@ class PageManager {
         return SimpleDialog(
           title: Text(songListNotifier.value.songList[index].title),
           children: <Widget>[
+            SimpleDialogOption(
+              onPressed: () {
+                Navigator.pop(context, 'external');
+              },
+              child: const Text('Play on another device'),
+            ),
             SimpleDialogOption(
               onPressed: () {
                 Navigator.pop(context, 'edit');
@@ -288,6 +413,16 @@ class PageManager {
         );
       },
     )) {
+      case 'external':
+        showDeviceSelectionDialog(context, index).then((value) {
+          if (value != "unknown") {
+            playExternally(
+              songListNotifier.value.songList[index].filename,
+              value,
+            );
+          }
+        });
+        break;
       case 'edit':
         showMetadataInputDialog(context, index);
         break;
@@ -505,6 +640,66 @@ class PageManager {
     } else {
       // User canceled the picker
     }
+  }
+
+  void registerDevice(List<String> value) async {
+    try {
+      var postUri = Uri.parse("$apiUrl/devices");
+      var request = http.MultipartRequest("POST", postUri);
+
+      request.fields['nickname'] = value[0];
+      request.fields['key'] = value[1];
+      request.fields['device_type'] = value[2];
+      request.fields['current_song'] = "Unknown"; // Can't be an empty string.
+
+      await request.send();
+    } catch (e) {
+      // Something terrible has happened.
+    }
+  }
+
+  Future<List<String>> getDeviceIdentifier() async {
+    String deviceName = "unknown";
+    String deviceIdentifier = "unknown";
+    String deviceType = "unknown";
+    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+
+    if (Platform.isAndroid) {
+      AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
+      deviceName = androidInfo.name;
+      deviceIdentifier = "${androidInfo.name}:${androidInfo.model}";
+      deviceType = "mobile";
+    } else if (Platform.isIOS) {
+      IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
+      deviceName = iosInfo.name;
+      deviceIdentifier = "${iosInfo.name}:${iosInfo.model}";
+      deviceType = "mobile";
+    } else if (kIsWeb) {
+      // The web doesnt have a device UID, so use a combination fingerprint as an example
+      WebBrowserInfo webInfo = await deviceInfo.webBrowserInfo;
+      deviceName = webInfo.vendor!;
+      deviceIdentifier =
+          webInfo.vendor! +
+          webInfo.userAgent! +
+          webInfo.hardwareConcurrency.toString();
+      deviceType = "web";
+    } else if (Platform.isLinux) {
+      LinuxDeviceInfo linuxInfo = await deviceInfo.linuxInfo;
+      deviceName = linuxInfo.id;
+      deviceIdentifier = "${linuxInfo.id}:${linuxInfo.machineId}";
+      deviceType = "pc";
+    } else if (Platform.isWindows) {
+      WindowsDeviceInfo windowsInfo = await deviceInfo.windowsInfo;
+      deviceName = windowsInfo.computerName;
+      deviceIdentifier = "${windowsInfo.computerName}:${windowsInfo.deviceId}";
+      deviceType = "pc";
+    } else if (Platform.isMacOS) {
+      MacOsDeviceInfo macInfo = await deviceInfo.macOsInfo;
+      deviceName = macInfo.computerName;
+      deviceIdentifier = "${macInfo.computerName}:${macInfo.systemGUID}";
+      deviceType = "pc";
+    }
+    return [deviceName, deviceIdentifier, deviceType];
   }
 }
 

@@ -133,32 +133,11 @@ class _MyAppState extends State<MyApp> {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    PopupMenuButton(
+                    IconButton(
                       icon: Icon(Icons.speaker_rounded),
                       tooltip: "Output",
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'refresh':
-                            _pageManager.refresh();
-                            break;
-                          case 'upload':
-                            _pageManager.uploadSong();
-                            break;
-                        }
-                      },
-                      itemBuilder: (BuildContext context) {
-                        return [
-                          PopupMenuItem<String>(
-                            value: 'refresh',
-                            child: Text('Refresh'),
-                          ),
-                          PopupMenuItem<String>(
-                            value: 'upload',
-                            child: Text('Upload'),
-                          ),
-                        ];
-                      },
-                    ),
+                      onPressed: () {
+                      }),
                     const Spacer(),
                     Row(
                       children: [
