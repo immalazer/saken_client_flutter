@@ -343,13 +343,13 @@ class PageManager {
     if (result != null) {
       File file = File(result.files.single.path!);
       try {
-        var metadata = readMetadata(file, getImage: true);
+        dynamic metadata = readAllMetadata(file, getImage: true);
 
         var postUri = Uri.parse("$apiUrl/songs");
         var request = http.MultipartRequest("POST", postUri);
         var filename = Uuid().v4().toString();
-        request.fields['title'] = metadata.title ?? basename(file.path);
-        request.fields['artist'] = metadata.artist ?? "Unknown";
+        request.fields['title'] = metadata.songName ?? basename(file.path);
+        request.fields['artist'] = metadata.leadPerformer ?? "Unknown";
         request.fields['album'] = metadata.album ?? "No album";
         request.fields['duration'] = metadata.duration.toString();
         request.fields['filename'] = filename;
