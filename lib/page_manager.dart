@@ -125,10 +125,6 @@ class PageManager {
     // Save the current index for use with fast forward and prev.
     currentIndex = index;
 
-    if (syncing && syncedDevice != deviceId[1] && origin == null) {
-      queueOnExternalDevice(path, syncedDevice);
-    }
-
     try {
       http.get(Uri.parse('$apiUrl/play/$path')).then((value) async {
         var file = await DefaultCacheManager().getSingleFile(
@@ -140,32 +136,53 @@ class PageManager {
           title: songListNotifier.value.songList[index].title,
         );
         _audioPlayer.setFilePath(file.path);
-        play(origin: origin);
+
+        if (syncing && syncedDevice != deviceId[1] && origin == null) {
+          await queueOnExternalDevice(
+            path,
+            syncedDevice,
+          ).then((_) => play(origin: origin));
+        } else {
+          play(origin: origin);
+        }
       });
     } catch (e) {
       // Something really terrible has happened, and we shouldn't ignore it.
     }
   }
 
-  void play({String? origin}) {
+  void play({String? origin}) async {
     if (syncing && origin == null) {
-      invokeDeviceCommand('play', syncedDevice);
+      invokeDeviceCommand(
+        'play',
+        syncedDevice,
+      ).then((_) => _audioPlayer.play());
+    } else {
+      _audioPlayer.play();
     }
-    _audioPlayer.play();
   }
 
-  void pause({String? origin}) {
+  void pause({String? origin}) async {
     if (syncing && origin == null) {
-      invokeDeviceCommand('pause', syncedDevice);
+      await invokeDeviceCommand(
+        'pause',
+        syncedDevice,
+      ).then((_) => _audioPlayer.pause());
+    } else {
+      _audioPlayer.pause();
     }
-    _audioPlayer.pause();
   }
 
-  void seek(Duration position, {String? origin}) {
+  void seek(Duration position, {String? origin}) async {
     if (syncing && origin == null) {
-      invokeDeviceCommand('seek', syncedDevice, data: position);
+      invokeDeviceCommand(
+        'seek',
+        syncedDevice,
+        data: position,
+      ).then((_) => _audioPlayer.seek(position));
+    } else {
+      _audioPlayer.seek(position);
     }
-    _audioPlayer.seek(position);
   }
 
   void dispose() {
@@ -334,7 +351,7 @@ class PageManager {
     }
   }
 
-  void queueOnExternalDevice(String filename, String targetId) async {
+  Future<void> queueOnExternalDevice(String filename, String targetId) async {
     try {
       var postUri = Uri.parse("$apiUrl/devices/$targetId");
       var request = http.MultipartRequest("POST", postUri);
