@@ -31,7 +31,7 @@ class PageManager {
   );
   final buttonNotifier = ValueNotifier<ButtonState>(ButtonState.paused);
 
-  static const apiUrl = 'http://localhost:8000/api/songs/';
+  static const apiUrl = 'http://localhost:8000/api';
 
   late AudioPlayer _audioPlayer;
   PageManager() {
@@ -109,7 +109,7 @@ class PageManager {
     currentIndex = index;
 
     pause();
-    http.get(Uri.parse('http://localhost:8000/api/play/$path')).then((
+    http.get(Uri.parse('$apiUrl/play/$path')).then((
       value,
     ) async {
       var file = await DefaultCacheManager().getSingleFile(
@@ -170,7 +170,7 @@ class PageManager {
   }
 
   Future<List<Song>> fetchSongs() async {
-    final response = await http.get(Uri.parse(apiUrl));
+    final response = await http.get(Uri.parse("$apiUrl/songs"));
 
     if (response.statusCode == 200) {
       List<dynamic> json = jsonDecode(response.body);
@@ -187,7 +187,7 @@ class PageManager {
       File file = File(result.files.single.path!);
       var metadata = readMetadata(file);
 
-      var postUri = Uri.parse("http://localhost:8000/api/songs");
+      var postUri = Uri.parse("$apiUrl/songs");
       var request = http.MultipartRequest("POST", postUri);
       var filename = Uuid().v4().toString();
       request.fields['title'] = metadata.title ?? basename(file.path);
