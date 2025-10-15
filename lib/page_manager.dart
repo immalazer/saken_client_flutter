@@ -52,10 +52,7 @@ class PageManager {
       macOS: true,
     );
 
-    futureSongs = fetchSongs().then((value) {
-      songListNotifier.value = SongListState(songList: value);
-      return List.empty();
-    });
+    refresh();
 
     _audioPlayer = AudioPlayer();
 
@@ -165,6 +162,13 @@ class PageManager {
     }
   }
 
+  void refresh() {
+    futureSongs = fetchSongs().then((value) {
+      songListNotifier.value = SongListState(songList: value);
+      return songListNotifier.value.songList;
+    });
+  }
+
   Future<List<Song>> fetchSongs() async {
     final response = await http.get(Uri.parse("$apiUrl/songs"));
 
@@ -223,10 +227,7 @@ class PageManager {
 
       request.send().then((response) {
         if (response.statusCode == 201) {
-          fetchSongs().then((value) {
-            songListNotifier.value = SongListState(songList: value);
-            return songListNotifier.value;
-          });
+          refresh();
         }
       });
     } else {
