@@ -15,7 +15,6 @@ import 'model/song_model.dart';
 
 class PageManager {
   int currentIndex = 0;
-  final _textFieldController = TextEditingController();
   late Future<List<Song>> futureSongs;
 
   final songListNotifier = ValueNotifier<SongListState>(
@@ -250,6 +249,22 @@ class PageManager {
     }
   }
 
+  void updateSong(int index, String title, String artist, String album) async {
+    try {
+      var filename = songListNotifier.value.songList[index].filename;
+      var postUri = Uri.parse("$apiUrl/songs/$filename");
+      var request = http.MultipartRequest("POST", postUri);
+
+      request.fields['title'] = title;
+      request.fields['artist'] = artist;
+      request.fields['album'] = album;
+
+      request.send();
+    } catch (e) {
+      // Something terrible has happened.
+    }
+  }
+
   Future<void> showSongOptionDialog(BuildContext context, int index) async {
     switch (await showDialog<String>(
       context: context,
@@ -257,6 +272,12 @@ class PageManager {
         return SimpleDialog(
           title: Text(songListNotifier.value.songList[index].title),
           children: <Widget>[
+            SimpleDialogOption(
+              onPressed: () {
+                Navigator.pop(context, 'edit');
+              },
+              child: const Text('Edit metadata'),
+            ),
             SimpleDialogOption(
               onPressed: () {
                 Navigator.pop(context, 'delete');
@@ -267,6 +288,9 @@ class PageManager {
         );
       },
     )) {
+      case 'edit':
+        showMetadataInputDialog(context, index);
+        break;
       case 'delete':
         deleteSong(index);
         break;
@@ -276,18 +300,88 @@ class PageManager {
     }
   }
 
+  Future<void> showMetadataInputDialog(BuildContext context, int index) async {
+    final songToEdit = songListNotifier.value.songList[index];
+    final titleTextEditingController = TextEditingController(
+      text: songToEdit.title,
+    );
+    final artistTextEditingController = TextEditingController(
+      text: songToEdit.artist,
+    );
+    final albumTextEditingController = TextEditingController(
+      text: songToEdit.album,
+    );
+
+    return showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Edit metadata"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleTextEditingController,
+                decoration: InputDecoration(
+                  labelText: "Title",
+                  hintText: songToEdit.title,
+                ),
+              ),
+              SizedBox(height: 14),
+              TextField(
+                controller: artistTextEditingController,
+                decoration: InputDecoration(
+                  labelText: "Artist",
+                  hintText: songToEdit.artist,
+                ),
+              ),
+              SizedBox(height: 14),
+              TextField(
+                controller: albumTextEditingController,
+                decoration: InputDecoration(
+                  labelText: "Album",
+                  hintText: songToEdit.album,
+                ),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            ElevatedButton(
+              child: const Text("Cancel"),
+              onPressed: () => Navigator.pop(context),
+            ),
+            ElevatedButton(
+              child: const Text('OK'),
+              onPressed: () async {
+                updateSong(
+                  index,
+                  titleTextEditingController.text,
+                  artistTextEditingController.text,
+                  albumTextEditingController.text,
+                );
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<String?> showTextInputDialog(
     BuildContext context,
     String title,
     String hint,
   ) async {
+    final textFieldController = TextEditingController();
+
     return showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: Text(title),
           content: TextField(
-            controller: _textFieldController,
+            controller: textFieldController,
             decoration: InputDecoration(hintText: hint),
           ),
           actions: <Widget>[
@@ -297,8 +391,7 @@ class PageManager {
             ),
             ElevatedButton(
               child: const Text('OK'),
-              onPressed: () =>
-                  Navigator.pop(context, _textFieldController.text),
+              onPressed: () => Navigator.pop(context, textFieldController.text),
             ),
           ],
         );
