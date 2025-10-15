@@ -358,7 +358,7 @@ class PageManager {
     }
   }
 
-  Future<String> showDeviceSelectionDialog(BuildContext context) async {
+  Future<String> showDeviceSelectionDialog(BuildContext context, bool syncMenu) async {
     try {
       final response = await http.get(Uri.parse("$apiUrl/devices"));
       if (response.statusCode == 200 && context.mounted) {
@@ -398,7 +398,7 @@ class PageManager {
           );
         }
 
-        if (!syncing) {
+        if (!syncing || !syncMenu) {
           await showDialog<String>(
             context: context,
             builder: (BuildContext context) {
@@ -471,7 +471,7 @@ class PageManager {
       },
     )) {
       case 'external':
-        showDeviceSelectionDialog(context).then((value) {
+        showDeviceSelectionDialog(context, false).then((value) {
           if (value != "unknown") {
             queueOnExternalDevice(
               songListNotifier.value.songList[index].filename,

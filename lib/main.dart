@@ -140,7 +140,7 @@ class _MyAppState extends State<MyApp> {
                       icon: Icon(Icons.sync_alt_rounded),
                       tooltip: "Sync to device",
                       onPressed: () {
-                        _pageManager.showDeviceSelectionDialog(context).then((
+                        _pageManager.showDeviceSelectionDialog(context, true).then((
                           value,
                         ) {
                           if (value != 'cancel') {
