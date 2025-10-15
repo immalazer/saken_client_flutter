@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -9,10 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:http/http.dart' as http;
-import 'package:mime/mime.dart';
 import 'package:path/path.dart';
 import 'package:saken/helper/utils.dart';
-import 'package:uuid/uuid.dart';
+import 'package:saken/navigation_service.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'model/song_model.dart';
 
@@ -50,6 +48,7 @@ class PageManager {
   List<String> deviceId = <String>[];
 
   late AudioPlayer _audioPlayer;
+
   PageManager() {
     _init();
   }
@@ -358,7 +357,10 @@ class PageManager {
     }
   }
 
-  Future<String> showDeviceSelectionDialog(BuildContext context, bool syncMenu) async {
+  Future<String> showDeviceSelectionDialog(
+    BuildContext context,
+    bool syncMenu,
+  ) async {
     try {
       final response = await http.get(Uri.parse("$apiUrl/devices"));
       if (response.statusCode == 200 && context.mounted) {
@@ -602,6 +604,31 @@ class PageManager {
     );
   }
 
+  Future<bool?> showSyncConfirmationDialog(
+    BuildContext context,
+    String targetId,
+  ) async {
+    return showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Sync request"),
+          content: Text("$targetId wishes to sync with your device."),
+          actions: <Widget>[
+            ElevatedButton(
+              child: const Text("Reject"),
+              onPressed: () => Navigator.pop(context, false),
+            ),
+            ElevatedButton(
+              child: const Text('OK'),
+              onPressed: () => Navigator.pop(context, true),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void setServerHost(String url) {
     host = url;
     apiUrl = "http://$host:$apiPort/api";
@@ -634,7 +661,7 @@ class PageManager {
       channel.sink.add(jsonEncode(controlsSubscription));
       channel.stream.listen(
         cancelOnError: true,
-        (message) {
+        (message) async {
           final data = jsonDecode(message);
 
           if (data['channel'] == 'songs-updates') {
@@ -681,14 +708,42 @@ class PageManager {
                     if (eventData['extra'] != null) {
                       seek(parseDuration(eventData['extra']), origin: origin);
                     }
-                  case 'sync':
-                    // We received a sync request, so let's beam something up.
-                    try {
-                      syncing = true;
-                      syncedDevice = eventData['origin'];
-                    } catch (e) {
-                      // We're just don't a simple push here.
+                  case 'sync-req':
+                    // We received a sync request. Prompt the user first.
+                    if (syncing) {
+                      // We're already synced, reject the request.
+                      invokeDeviceCommand('sync-no', origin);
+                    } else if (origin != null &&
+                        NavigationService.navigatorKey.currentContext != null) {
+                      await showSyncConfirmationDialog(
+                        NavigationService.navigatorKey.currentContext!,
+                        origin,
+                      ).then((accepted) {
+                        if (accepted!) {
+                          invokeDeviceCommand('sync-ok', origin);
+                        } else {
+                          invokeDeviceCommand('sync-no', origin);
+                        }
+                      });
                     }
+                  case 'sync-ok':
+                    // Our sync request got accepted, initialize the variables.
+                    try {
+                      if (!syncing) {
+                        syncing = true;
+                        syncedDevice = eventData['origin'];
+
+                        // Tell our origin that we're okay.
+                        invokeDeviceCommand('sync-ok', eventData['origin']);
+                      }
+                    } catch (e) {
+                      // We should be fine.
+                    }
+                    break;
+                  case 'sync-no':
+                  case 'sync-end':
+                    syncing = false;
+                    syncedDevice = "";
                     break;
                 }
               }
@@ -771,6 +826,7 @@ class PageManager {
   }
 
   void stopSync() async {
+    invokeDeviceCommand('sync-end', syncedDevice);
     syncing = false;
     syncedDevice = "";
   }

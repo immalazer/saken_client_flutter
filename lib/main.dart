@@ -1,5 +1,6 @@
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:saken/navigation_service.dart';
 import 'page_manager.dart';
 
 void main() => runApp(const MyApp());
@@ -29,6 +30,8 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      initialRoute: '/',
+      navigatorKey: NavigationService.navigatorKey,
       title: 'Saken',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -73,7 +76,7 @@ class _MyAppState extends State<MyApp> {
                                   builder: (context, snapshot) {
                                     if (snapshot.hasData) {
                                       return CircleAvatar(
-                                        foregroundImage: snapshot.data
+                                        foregroundImage: snapshot.data,
                                       );
                                     } else {
                                       return CircleAvatar(
@@ -140,15 +143,21 @@ class _MyAppState extends State<MyApp> {
                       icon: Icon(Icons.sync_alt_rounded),
                       tooltip: "Sync to device",
                       onPressed: () {
-                        _pageManager.showDeviceSelectionDialog(context, true).then((
-                          value,
-                        ) {
-                          if (value != 'cancel') {
-                            _pageManager.invokeDeviceCommand('sync', value);
-                          } else {
-                            _pageManager.stopSync();
-                          }
-                        });
+                        _pageManager
+                            .showDeviceSelectionDialog(context, true)
+                            .then((value) {
+                              if (value != 'cancel') {
+                                // Don't send sync request if we are already synced.
+                                if (!_pageManager.syncing) {
+                                  _pageManager.invokeDeviceCommand(
+                                    'sync-req',
+                                    value,
+                                  );
+                                }
+                              } else {
+                                _pageManager.stopSync();
+                              }
+                            });
                       },
                     ),
                     const Spacer(),
