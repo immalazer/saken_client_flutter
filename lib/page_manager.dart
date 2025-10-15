@@ -119,11 +119,10 @@ class PageManager {
       var file = await DefaultCacheManager().getSingleFile(
         jsonDecode(value.body)['message'],
       );
-      var metadata = readMetadata(file);
       songMetadataNotifier.value = MetadataNotifier(
-        album: metadata.album ?? "No album",
-        artist: metadata.artist ?? "Unknown",
-        title: metadata.title ?? "No title",
+        album: songListNotifier.value.songList[index].album,
+        artist: songListNotifier.value.songList[index].artist,
+        title: songListNotifier.value.songList[index].title,
       );
       _audioPlayer.setFilePath(file.path);
       play();
