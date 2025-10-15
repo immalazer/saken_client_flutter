@@ -208,7 +208,7 @@ class _MyAppState extends State<MyApp> {
                             _pageManager.refresh();
                             break;
                           case 'upload':
-                            _pageManager.uploadSong();
+                            await _pageManager.uploadSong();
                             break;
                           case 'server':
                             var resultLabel = await _pageManager

@@ -6,7 +6,6 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:http/http.dart' as http;
@@ -282,74 +281,29 @@ class PageManager {
     return null;
   }
 
-  void uploadSong() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles();
+  Future<void> uploadSong() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.audio,
+      withData: false,
+      withReadStream: true,
+    );
 
-    if (result != null) {
-      File file = File(result.files.single.path!);
+    if (result?.files.first != null) {
+      final file = result!.files.first;
 
       try {
-        dynamic metadata = readAllMetadata(file, getImage: true);
-
         var postUri = Uri.parse("$apiUrl/songs");
         var request = http.MultipartRequest("POST", postUri);
-        var filename = Uuid().v4().toString();
-        request.fields['title'] = metadata.songName ?? basename(file.path);
-        request.fields['artist'] = metadata.leadPerformer ?? "Unknown";
-        request.fields['album'] = metadata.album ?? "No album";
-        request.fields['duration'] = metadata.duration.toString();
-        request.fields['filename'] = filename;
         request.files.add(
           http.MultipartFile(
             'file',
-            file.readAsBytes().asStream(),
-            file.lengthSync(),
-            filename: filename,
+            http.ByteStream(file.readStream!),
+            file.size,
+            filename: "file", // Won't be read, but we need this somehow.
           ),
         );
 
-        if (metadata.pictures.isNotEmpty) {
-          request.files.add(
-            http.MultipartFile.fromBytes(
-              'art',
-              metadata.pictures[0].bytes,
-              filename: filename,
-            ),
-          );
-        }
-
         await request.send();
-      } on MetadataParserException {
-        // Let's see if the file is actually an audio file.
-        final mimeType = lookupMimeType(file.path);
-
-        if (mimeType != null && mimeType.startsWith('audio')) {
-          // Okay, let's just upload it and hope for the best.
-          // Let's just do it without any metadata.
-          try {
-            var postUri = Uri.parse("$apiUrl/songs");
-            var request = http.MultipartRequest("POST", postUri);
-            var filename = Uuid().v4().toString();
-
-            request.fields['title'] = basename(file.path);
-            request.fields['artist'] = "Unknown";
-            request.fields['album'] = "No album";
-            request.fields['duration'] = "00:00";
-            request.fields['filename'] = filename;
-            request.files.add(
-              http.MultipartFile(
-                'file',
-                file.readAsBytes().asStream(),
-                file.lengthSync(),
-                filename: filename,
-              ),
-            );
-
-            await request.send();
-          } catch (e) {
-            // Whoops, more things are on fire.
-          }
-        }
       } catch (e) {
         // Something really terrible has happened, and we shouldn't ignore it.
       }
