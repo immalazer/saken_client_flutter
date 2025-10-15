@@ -4,7 +4,6 @@ import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:http_parser/http_parser.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:http/http.dart' as http;
@@ -107,11 +106,8 @@ class PageManager {
   void queue(String path, int index) async {
     // Save the current index for use with fast forward and prev.
     currentIndex = index;
-
     pause();
-    http.get(Uri.parse('$apiUrl/play/$path')).then((
-      value,
-    ) async {
+    http.get(Uri.parse('$apiUrl/play/$path')).then((value) async {
       var file = await DefaultCacheManager().getSingleFile(
         jsonDecode(value.body)['message'],
       );
@@ -180,12 +176,23 @@ class PageManager {
     }
   }
 
+  Future<String> getAlbumArt(int index) async {
+    final filename = songListNotifier.value.songList[index].filename;
+    final response = await http.get(Uri.parse("$apiUrl/art/$filename"));
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['message'];
+    } else {
+      return "";
+    }
+  }
+
   void uploadSong() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles();
 
     if (result != null) {
       File file = File(result.files.single.path!);
-      var metadata = readMetadata(file);
+      var metadata = readMetadata(file, getImage: true);
 
       var postUri = Uri.parse("$apiUrl/songs");
       var request = http.MultipartRequest("POST", postUri);
@@ -204,11 +211,21 @@ class PageManager {
         ),
       );
 
+      if (metadata.pictures.isNotEmpty) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'art',
+            metadata.pictures[0].bytes,
+            filename: filename,
+          ),
+        );
+      }
+
       request.send().then((response) {
         if (response.statusCode == 201) {
           fetchSongs().then((value) {
             songListNotifier.value = SongListState(songList: value);
-            return List.empty();
+            return songListNotifier.value;
           });
         }
       });

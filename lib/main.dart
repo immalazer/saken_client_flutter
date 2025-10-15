@@ -52,18 +52,40 @@ class _MyAppState extends State<MyApp> {
                       shrinkWrap: true,
                       itemCount: value.songList.length,
                       itemBuilder: (BuildContext context, int index) {
-                        return ListTile(
-                          onTap: () {
-                            _pageManager.queue(value.songList[index].filename, index);
-                          },
-                          title: Text(value.songList[index].title),
-                          subtitle: Text(
-                            "${value.songList[index].artist} - ${value.songList[index].album}",
-                            style: TextStyle(
-                              fontWeight: FontWeight.w200,
-                              fontSize: 13.5,
+                        return Column(
+                          children: [
+                            ListTile(
+                              onTap: () {
+                                _pageManager.queue(
+                                  value.songList[index].filename,
+                                  index,
+                                );
+                              },
+                              leading: FutureBuilder(
+                                future: _pageManager.getAlbumArt(index),
+                                builder: (context, snapshot) {
+                                  if (snapshot.hasData) {
+                                    return CircleAvatar(
+                                      backgroundImage: NetworkImage(
+                                        snapshot.data!,
+                                      ),
+                                    );
+                                  } else {
+                                    return CircleAvatar();
+                                  }
+                                },
+                              ),
+                              title: Text(value.songList[index].title),
+                              subtitle: Text(
+                                "${value.songList[index].artist}\n${value.songList[index].album}",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w200,
+                                  fontSize: 13.5,
+                                ),
+                              ),
                             ),
-                          ),
+                            Divider(),
+                          ],
                         );
                       },
                     ),
