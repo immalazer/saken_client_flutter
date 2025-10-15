@@ -27,9 +27,11 @@ class PageManager {
   final songListNotifier = ValueNotifier<SongListState>(
     SongListState(songList: List.empty()),
   );
+
   final songMetadataNotifier = ValueNotifier<MetadataNotifier>(
-    MetadataNotifier(album: "No album", title: "No track"),
+    MetadataNotifier(album: "No album", artist: "Unknown", title: "No track"),
   );
+
   final progressNotifier = ValueNotifier<ProgressBarState>(
     ProgressBarState(
       current: Duration.zero,
@@ -37,6 +39,7 @@ class PageManager {
       total: Duration.zero,
     ),
   );
+
   final buttonNotifier = ValueNotifier<ButtonState>(ButtonState.paused);
 
   String host = 'localhost';
@@ -118,122 +121,12 @@ class PageManager {
     });
   }
 
-  void setServerHost(String url) {
-    host = url;
-    apiUrl = "http://$host:$apiPort/api";
-    webSocketUrl = "ws://$host:$websocketPort/app/$webSocketKey";
-
-    // Re-initialize our connection
-    getDeviceIdentifier().then((value) {
-      deviceId = value;
-      registerDevice(deviceId);
-    });
-    subscribe();
-    refresh();
-  }
-
-  void subscribe() async {
-    final channel = status.WebSocketChannel.connect(Uri.parse(webSocketUrl));
-
-    try {
-      await channel.ready;
-
-      final updatesSubscription = {
-        "event": "pusher:subscribe",
-        "data": {"channel": "songs-updates"},
-      };
-      final controlsSubscription = {
-        "event": "pusher:subscribe",
-        "data": {"channel": "device-controls"},
-      };
-      channel.sink.add(jsonEncode(updatesSubscription));
-      channel.sink.add(jsonEncode(controlsSubscription));
-      channel.stream.listen(
-        cancelOnError: true,
-        (message) {
-          final data = jsonDecode(message);
-
-          if (data['channel'] == 'songs-updates') {
-            final eventData = jsonDecode(data['data']);
-            switch (eventData['message']) {
-              case 'update':
-                // Generic update message. Refresh immediately.
-                refresh();
-                break;
-              case 'delete':
-                songListNotifier.value.songList.removeWhere(
-                  (item) => item.filename == eventData['filename'],
-                );
-                // This is so dumb, but whatever.
-                songListNotifier.value = SongListState(
-                  songList: songListNotifier.value.songList,
-                );
-                break;
-            }
-          } else if (data['channel'] == 'device-controls') {
-            final eventData = jsonDecode(data['data']);
-
-            if (deviceId.isNotEmpty) {
-              var origin = eventData['origin'] == deviceId[1]
-                  ? null
-                  : eventData['origin'];
-
-              if (eventData['deviceId'] == deviceId[1]) {
-                switch (eventData['message']) {
-                  case 'pause':
-                    pause(origin: origin);
-                    break;
-                  case 'play':
-                    play(origin: origin);
-                    break;
-                  case 'queue':
-                    var filename = eventData['filename'];
-                    var index = songListNotifier.value.songList.indexWhere(
-                      (item) => item.filename == eventData['filename'],
-                    );
-                    queue(filename, index, origin: origin);
-                    break;
-                  case 'seek':
-                    if (eventData['extra'] != null) {
-                      seek(parseDuration(eventData['extra']), origin: origin);
-                    }
-                  case 'sync':
-                    // We received a sync request, so let's beam something up.
-                    try {
-                      syncing = true;
-                      syncedDevice = eventData['origin'];
-                    } catch (e) {
-                      // We're just don't a simple push here.
-                    }
-                    break;
-                }
-              }
-            }
-          }
-
-          // Listen on ping and return a pong
-          if (message.toString().contains('ping')) {
-            channel.sink.add(json.encode({"event": "pusher:pong"}));
-          }
-        },
-        onDone: () {
-          print('Connection closed.');
-        },
-        onError: (error) {
-          print(error);
-        },
-      );
-    } catch (error) {
-      // Something really bad happened.
-    }
-  }
-
   void queue(String path, int index, {String? origin}) async {
     // Save the current index for use with fast forward and prev.
     currentIndex = index;
 
     if (syncing && syncedDevice != deviceId[1] && origin == null) {
-      playOnDevice(path, syncedDevice);
+      queueOnExternalDevice(path, syncedDevice);
     }
 
     try {
@@ -256,21 +149,21 @@ class PageManager {
 
   void play({String? origin}) {
     if (syncing && origin == null) {
-      controlDevice('play', syncedDevice);
+      invokeDeviceCommand('play', syncedDevice);
     }
     _audioPlayer.play();
   }
 
   void pause({String? origin}) {
     if (syncing && origin == null) {
-      controlDevice('pause', syncedDevice);
+      invokeDeviceCommand('pause', syncedDevice);
     }
     _audioPlayer.pause();
   }
 
   void seek(Duration position, {String? origin}) {
     if (syncing && origin == null) {
-      controlDevice('seek', syncedDevice, data: position);
+      invokeDeviceCommand('seek', syncedDevice, data: position);
     }
     _audioPlayer.seek(position);
   }
@@ -279,32 +172,19 @@ class PageManager {
     _audioPlayer.dispose();
   }
 
-  void rewind() {
-    if (currentIndex - 1 < 0) {
-      queue(
-        songListNotifier.value.songList[currentIndex].filename,
-        currentIndex,
-      );
-    } else {
-      queue(
-        songListNotifier.value.songList[currentIndex - 1].filename,
-        currentIndex - 1,
-      );
-    }
-  }
+  void skip(int direction) {
+    int newIndex = currentIndex;
 
-  void fastForward() {
-    if (currentIndex + 1 == songListNotifier.value.songList.length) {
-      queue(
-        songListNotifier.value.songList[currentIndex].filename,
-        currentIndex,
-      );
-    } else {
-      queue(
-        songListNotifier.value.songList[currentIndex + 1].filename,
-        currentIndex + 1,
-      );
+    if (direction == 1) {
+      // WEIRD. Don't ask about this.
+      newIndex = currentIndex + 1 > songListNotifier.value.songList.length - 1
+          ? currentIndex
+          : currentIndex + 1;
+    } else if (direction == 0) {
+      newIndex = currentIndex - 1 < 0 ? currentIndex : currentIndex - 1;
     }
+
+    queue(songListNotifier.value.songList[newIndex].filename, newIndex);
   }
 
   void refresh() {
@@ -325,7 +205,12 @@ class PageManager {
     }
   }
 
-  void updateSong(int index, String title, String artist, String album) async {
+  void updateSongMetadata(
+    int index,
+    String title,
+    String artist,
+    String album,
+  ) async {
     try {
       var filename = songListNotifier.value.songList[index].filename;
       var postUri = Uri.parse("$apiUrl/songs/$filename");
@@ -335,13 +220,121 @@ class PageManager {
       request.fields['artist'] = artist;
       request.fields['album'] = album;
 
-      request.send();
+      await request.send();
     } catch (e) {
       // Something terrible has happened.
     }
   }
 
-  void playOnDevice(String filename, String targetId) async {
+  Future<List<Song>> fetchSongs() async {
+    try {
+      final response = await http.get(Uri.parse("$apiUrl/songs"));
+
+      if (response.statusCode == 200) {
+        List<dynamic> json = jsonDecode(response.body);
+        return json.map((data) => Song.fromJson(data)).toList();
+      } else {
+        throw Exception('Failed to load song');
+      }
+    } catch (e) {
+      // Something really terrible has happened, and we shouldn't ignore it.
+    }
+    return List.empty();
+  }
+
+  Future<String?> getAlbumArt(int index) async {
+    try {
+      final filename = songListNotifier.value.songList[index].filename;
+      final response = await http.get(Uri.parse("$apiUrl/art/$filename"));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body)['message'];
+      } else {
+        return null;
+      }
+    } catch (e) {
+      // Something really terrible has happened, and we shouldn't ignore it.
+    }
+    return null;
+  }
+
+  void uploadSong() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles();
+
+    if (result != null) {
+      File file = File(result.files.single.path!);
+
+      try {
+        dynamic metadata = readAllMetadata(file, getImage: true);
+
+        var postUri = Uri.parse("$apiUrl/songs");
+        var request = http.MultipartRequest("POST", postUri);
+        var filename = Uuid().v4().toString();
+        request.fields['title'] = metadata.songName ?? basename(file.path);
+        request.fields['artist'] = metadata.leadPerformer ?? "Unknown";
+        request.fields['album'] = metadata.album ?? "No album";
+        request.fields['duration'] = metadata.duration.toString();
+        request.fields['filename'] = filename;
+        request.files.add(
+          http.MultipartFile(
+            'file',
+            file.readAsBytes().asStream(),
+            file.lengthSync(),
+            filename: filename,
+          ),
+        );
+
+        if (metadata.pictures.isNotEmpty) {
+          request.files.add(
+            http.MultipartFile.fromBytes(
+              'art',
+              metadata.pictures[0].bytes,
+              filename: filename,
+            ),
+          );
+        }
+
+        await request.send();
+      } on MetadataParserException {
+        // Let's see if the file is actually an audio file.
+        final mimeType = lookupMimeType(file.path);
+
+        if (mimeType != null && mimeType.startsWith('audio')) {
+          // Okay, let's just upload it and hope for the best.
+          // Let's just do it without any metadata.
+          try {
+            var postUri = Uri.parse("$apiUrl/songs");
+            var request = http.MultipartRequest("POST", postUri);
+            var filename = Uuid().v4().toString();
+
+            request.fields['title'] = basename(file.path);
+            request.fields['artist'] = "Unknown";
+            request.fields['album'] = "No album";
+            request.fields['duration'] = "00:00";
+            request.fields['filename'] = filename;
+            request.files.add(
+              http.MultipartFile(
+                'file',
+                file.readAsBytes().asStream(),
+                file.lengthSync(),
+                filename: filename,
+              ),
+            );
+
+            await request.send();
+          } catch (e) {
+            // Whoops, more things are on fire.
+          }
+        }
+      } catch (e) {
+        // Something really terrible has happened, and we shouldn't ignore it.
+      }
+    } else {
+      // User canceled the picker
+    }
+  }
+
+  void queueOnExternalDevice(String filename, String targetId) async {
     try {
       var postUri = Uri.parse("$apiUrl/devices/$targetId");
       var request = http.MultipartRequest("POST", postUri);
@@ -351,13 +344,13 @@ class PageManager {
       request.fields['key'] = targetId;
       request.fields['filename'] = filename;
 
-      request.send();
+      await request.send();
     } catch (e) {
       // More fire, yay.
     }
   }
 
-  Future<void> controlDevice(
+  Future<void> invokeDeviceCommand(
     String command,
     String targetId, {
     dynamic data,
@@ -376,20 +369,15 @@ class PageManager {
       request.fields['filename'] = "unknown";
       if (data != null) request.fields['extra'] = data.toString();
 
-      request.send();
-
-      if (command == "sync") {
-        syncing = true;
-        syncedDevice = targetId;
-      }
+      await request.send().then((_) {
+        if (command == "sync") {
+          syncing = true;
+          syncedDevice = targetId;
+        }
+      });
     } catch (e) {
       // More fire, yay.
     }
-  }
-
-  void stopSync() async {
-    syncing = false;
-    syncedDevice = "";
   }
 
   Future<String> showDeviceSelectionDialog(BuildContext context) async {
@@ -507,7 +495,7 @@ class PageManager {
       case 'external':
         showDeviceSelectionDialog(context).then((value) {
           if (value != "unknown") {
-            playOnDevice(
+            queueOnExternalDevice(
               songListNotifier.value.songList[index].filename,
               value,
             );
@@ -579,7 +567,7 @@ class PageManager {
             ElevatedButton(
               child: const Text('OK'),
               onPressed: () async {
-                updateSong(
+                updateSongMetadata(
                   index,
                   titleTextEditingController.text,
                   artistTextEditingController.text,
@@ -636,111 +624,113 @@ class PageManager {
     );
   }
 
-  Future<List<Song>> fetchSongs() async {
-    try {
-      final response = await http.get(Uri.parse("$apiUrl/songs"));
+  void setServerHost(String url) {
+    host = url;
+    apiUrl = "http://$host:$apiPort/api";
+    webSocketUrl = "ws://$host:$websocketPort/app/$webSocketKey";
 
-      if (response.statusCode == 200) {
-        List<dynamic> json = jsonDecode(response.body);
-        return json.map((data) => Song.fromJson(data)).toList();
-      } else {
-        throw Exception('Failed to load song');
-      }
-    } catch (e) {
-      // Something really terrible has happened, and we shouldn't ignore it.
-    }
-    return List.empty();
+    // Re-initialize our connection
+    getDeviceIdentifier().then((value) {
+      deviceId = value;
+      registerDevice(deviceId);
+    });
+    subscribe();
+    refresh();
   }
 
-  Future<String?> getAlbumArt(int index) async {
+  void subscribe() async {
+    final channel = status.WebSocketChannel.connect(Uri.parse(webSocketUrl));
+
     try {
-      final filename = songListNotifier.value.songList[index].filename;
-      final response = await http.get(Uri.parse("$apiUrl/art/$filename"));
+      await channel.ready;
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body)['message'];
-      } else {
-        return null;
-      }
-    } catch (e) {
-      // Something really terrible has happened, and we shouldn't ignore it.
-    }
-    return null;
-  }
+      final updatesSubscription = {
+        "event": "pusher:subscribe",
+        "data": {"channel": "songs-updates"},
+      };
+      final controlsSubscription = {
+        "event": "pusher:subscribe",
+        "data": {"channel": "device-controls"},
+      };
+      channel.sink.add(jsonEncode(updatesSubscription));
+      channel.sink.add(jsonEncode(controlsSubscription));
+      channel.stream.listen(
+        cancelOnError: true,
+        (message) {
+          final data = jsonDecode(message);
 
-  void uploadSong() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles();
+          if (data['channel'] == 'songs-updates') {
+            final eventData = jsonDecode(data['data']);
+            switch (eventData['message']) {
+              case 'update':
+                // Generic update message. Refresh immediately.
+                refresh();
+                break;
+              case 'delete':
+                songListNotifier.value.songList.removeWhere(
+                  (item) => item.filename == eventData['filename'],
+                );
+                // This is so dumb, but whatever.
+                songListNotifier.value = SongListState(
+                  songList: songListNotifier.value.songList,
+                );
+                break;
+            }
+          } else if (data['channel'] == 'device-controls') {
+            final eventData = jsonDecode(data['data']);
 
-    if (result != null) {
-      File file = File(result.files.single.path!);
+            if (deviceId.isNotEmpty) {
+              var origin = eventData['origin'] == deviceId[1]
+                  ? null
+                  : eventData['origin'];
 
-      try {
-        dynamic metadata = readAllMetadata(file, getImage: true);
-
-        var postUri = Uri.parse("$apiUrl/songs");
-        var request = http.MultipartRequest("POST", postUri);
-        var filename = Uuid().v4().toString();
-        request.fields['title'] = metadata.songName ?? basename(file.path);
-        request.fields['artist'] = metadata.leadPerformer ?? "Unknown";
-        request.fields['album'] = metadata.album ?? "No album";
-        request.fields['duration'] = metadata.duration.toString();
-        request.fields['filename'] = filename;
-        request.files.add(
-          http.MultipartFile(
-            'file',
-            file.readAsBytes().asStream(),
-            file.lengthSync(),
-            filename: filename,
-          ),
-        );
-
-        if (metadata.pictures.isNotEmpty) {
-          request.files.add(
-            http.MultipartFile.fromBytes(
-              'art',
-              metadata.pictures[0].bytes,
-              filename: filename,
-            ),
-          );
-        }
-
-        request.send();
-      } on MetadataParserException {
-        // Let's see if the file is actually an audio file.
-        final mimeType = lookupMimeType(file.path);
-
-        if (mimeType != null && mimeType.startsWith('audio')) {
-          // Okay, let's just upload it and hope for the best.
-          // Let's just do it without any metadata.
-          try {
-            var postUri = Uri.parse("$apiUrl/songs");
-            var request = http.MultipartRequest("POST", postUri);
-            var filename = Uuid().v4().toString();
-
-            request.fields['title'] = basename(file.path);
-            request.fields['artist'] = "Unknown";
-            request.fields['album'] = "No album";
-            request.fields['duration'] = "00:00";
-            request.fields['filename'] = filename;
-            request.files.add(
-              http.MultipartFile(
-                'file',
-                file.readAsBytes().asStream(),
-                file.lengthSync(),
-                filename: filename,
-              ),
-            );
-
-            request.send();
-          } catch (e) {
-            // Whoops, more things are on fire.
+              if (eventData['deviceId'] == deviceId[1]) {
+                switch (eventData['message']) {
+                  case 'pause':
+                    pause(origin: origin);
+                    break;
+                  case 'play':
+                    play(origin: origin);
+                    break;
+                  case 'queue':
+                    var filename = eventData['filename'];
+                    var index = songListNotifier.value.songList.indexWhere(
+                      (item) => item.filename == eventData['filename'],
+                    );
+                    queue(filename, index, origin: origin);
+                    break;
+                  case 'seek':
+                    if (eventData['extra'] != null) {
+                      seek(parseDuration(eventData['extra']), origin: origin);
+                    }
+                  case 'sync':
+                    // We received a sync request, so let's beam something up.
+                    try {
+                      syncing = true;
+                      syncedDevice = eventData['origin'];
+                    } catch (e) {
+                      // We're just don't a simple push here.
+                    }
+                    break;
+                }
+              }
+            }
           }
-        }
-      } catch (e) {
-        // Something really terrible has happened, and we shouldn't ignore it.
-      }
-    } else {
-      // User canceled the picker
+
+          // Listen on ping and return a pong
+          if (message.toString().contains('ping')) {
+            channel.sink.add(json.encode({"event": "pusher:pong"}));
+          }
+        },
+        onDone: () {
+          print('Connection closed.');
+        },
+        onError: (error) {
+          print(error);
+        },
+      );
+    } catch (error) {
+      // Something really bad happened.
     }
   }
 
@@ -802,6 +792,11 @@ class PageManager {
       deviceType = "pc";
     }
     return [deviceName, deviceIdentifier, deviceType];
+  }
+
+  void stopSync() async {
+    syncing = false;
+    syncedDevice = "";
   }
 }
 

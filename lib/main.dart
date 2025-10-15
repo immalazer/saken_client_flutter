@@ -146,7 +146,7 @@ class _MyAppState extends State<MyApp> {
                           value,
                         ) {
                           if (value != 'cancel') {
-                            _pageManager.controlDevice('sync', value);
+                            _pageManager.invokeDeviceCommand('sync', value);
                           } else {
                             _pageManager.stopSync();
                           }
@@ -159,7 +159,7 @@ class _MyAppState extends State<MyApp> {
                         IconButton(
                           tooltip: "Rewind",
                           onPressed: () {
-                            _pageManager.rewind();
+                            _pageManager.skip(0);
                           },
                           icon: const Icon(Icons.skip_previous_rounded),
                         ),
@@ -194,7 +194,7 @@ class _MyAppState extends State<MyApp> {
                         IconButton(
                           tooltip: "Skip",
                           onPressed: () {
-                            _pageManager.fastForward();
+                            _pageManager.skip(1);
                           },
                           icon: const Icon(Icons.skip_next_rounded),
                         ),
