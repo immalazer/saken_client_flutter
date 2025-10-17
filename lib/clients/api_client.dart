@@ -35,6 +35,22 @@ class ApiClient {
     }
   }
 
+  Future<Song?> getSong(String filename) async {
+    try {
+      final response = await http.get(Uri.parse("$apiUrl/songs/$filename"));
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body)[0] as Map<String, dynamic>;
+        return Song.fromJson(json);
+      } else {
+        return null;
+      }
+    } catch (e) {
+      // Something really terrible has happened, and we shouldn't ignore it.
+    }
+    return null;
+  }
+
   Future<List<Song>> fetchSongs() async {
     try {
       final response = await http.get(Uri.parse("$apiUrl/songs"));

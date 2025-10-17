@@ -200,6 +200,7 @@ class PageManager {
 
   void refresh() {
     futureSongs = apiClient.fetchSongs().then((value) {
+      value.sort();
       songListNotifier.value = SongListState(songList: value);
       return songListNotifier.value.songList;
     });
@@ -549,7 +550,15 @@ class PageManager {
           switch (eventData['message']) {
             case 'update':
               // Generic update message. Refresh immediately.
-              refresh();
+              await apiClient.getSong(eventData['filename']).then((value) {
+                if (value != null) {
+                  songListNotifier.value.songList.add(value);
+                  songListNotifier.value.songList.sort();
+                  songListNotifier.value = SongListState(
+                    songList: songListNotifier.value.songList,
+                  );
+                }
+              });
               break;
             case 'delete':
               songListNotifier.value.songList.removeWhere(

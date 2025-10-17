@@ -1,4 +1,4 @@
-class Song {
+class Song implements Comparable<Song> {
   final String title;
   final String artist;
   final String album;
@@ -12,6 +12,19 @@ class Song {
     required this.duration,
     required this.filename,
   });
+
+  @override
+  int compareTo(Song other) {
+    // Compare by title
+    final titleComparison = title.toLowerCase().compareTo(other.title.toLowerCase());
+    
+    if (titleComparison != 0) {
+      return titleComparison;
+    }
+
+    // If titles are the same, compare by artist
+    return artist.toLowerCase().compareTo(other.artist.toLowerCase());
+  }
 
   factory Song.fromJson(Map<String, dynamic> json) {
     return switch (json) {
