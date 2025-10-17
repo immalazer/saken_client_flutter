@@ -1,7 +1,7 @@
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import 'package:flutter/material.dart';
-import 'package:saken/navigation_service.dart';
-import 'page_manager.dart';
+import 'package:saken/helper/navigation_service.dart';
+import 'managers/page_manager.dart';
 
 void main() => runApp(const MyApp());
 
@@ -72,7 +72,9 @@ class _MyAppState extends State<MyApp> {
                                   );
                                 },
                                 leading: FutureBuilder(
-                                  future: _pageManager.getAlbumArt(index),
+                                  future: _pageManager.apiClient.getAlbumArt(
+                                    value.songList[index].filename,
+                                  ),
                                   builder: (context, snapshot) {
                                     if (snapshot.hasData) {
                                       return CircleAvatar(
@@ -143,21 +145,24 @@ class _MyAppState extends State<MyApp> {
                       icon: Icon(Icons.sync_alt_rounded),
                       tooltip: "Sync to device",
                       onPressed: () {
-                        _pageManager
-                            .showDeviceSelectionDialog(context, true)
-                            .then((value) {
-                              if (value != 'cancel') {
-                                // Don't send sync request if we are already synced.
-                                if (!_pageManager.syncing) {
-                                  _pageManager.invokeDeviceCommand(
-                                    'sync-req',
-                                    value,
-                                  );
-                                }
-                              } else {
-                                _pageManager.stopSync();
-                              }
-                            });
+                        _pageManager.showDeviceSelectionDialog(context, true).then((
+                          value,
+                        ) {
+                          if (value != 'cancel') {
+                            // Don't send sync request if we are already synced.
+                            if (!_pageManager.deviceManager.isDeviceSyncing()) {
+                              _pageManager.deviceManager.invokeDeviceCommand(
+                                'sync-req',
+                                value,
+                                _pageManager.apiClient,
+                              );
+                            }
+                          } else {
+                            _pageManager.deviceManager.stopSync(
+                              _pageManager.apiClient,
+                            );
+                          }
+                        });
                       },
                     ),
                     const Spacer(),
@@ -217,14 +222,14 @@ class _MyAppState extends State<MyApp> {
                             _pageManager.refresh();
                             break;
                           case 'upload':
-                            await _pageManager.uploadSong();
+                            await _pageManager.apiClient.uploadSong();
                             break;
                           case 'server':
                             var resultLabel = await _pageManager
                                 .showTextInputDialog(
                                   context,
                                   "Configure server host",
-                                  _pageManager.host,
+                                  _pageManager.apiClient.host,
                                 );
                             if (resultLabel != null) {
                               _pageManager.setServerHost(resultLabel);

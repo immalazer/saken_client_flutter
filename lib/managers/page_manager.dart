@@ -1,25 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart';
+import 'package:saken/clients/api_client.dart';
 import 'package:saken/helper/utils.dart';
-import 'package:saken/navigation_service.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'model/song_model.dart';
+import 'package:saken/managers/device_manager.dart';
+import 'package:saken/helper/navigation_service.dart';
+import 'package:saken/clients/websocket_client.dart';
+import '../model/song_model.dart';
 
 class PageManager {
-  bool syncing = false;
-  String syncedDevice = "";
   int currentIndex = 0;
 
   late Future<List<Song>> futureSongs;
+  late DeviceManager deviceManager;
+  late ApiClient apiClient;
+  late WebSocketClient webSocketClient;
 
   final songListNotifier = ValueNotifier<SongListState>(
     SongListState(songList: List.empty()),
@@ -39,14 +38,6 @@ class PageManager {
 
   final buttonNotifier = ValueNotifier<ButtonState>(ButtonState.paused);
 
-  String host = 'localhost';
-  String apiPort = "8000";
-  String websocketPort = "8080";
-  String webSocketKey = "h3rixwse35kzcnrmdptw";
-  String apiUrl = "";
-  String webSocketUrl = "";
-  List<String> deviceId = <String>[];
-
   late AudioPlayer _audioPlayer;
 
   PageManager() {
@@ -54,24 +45,24 @@ class PageManager {
   }
 
   void _init() async {
-    apiUrl = "http://$host:$apiPort/api";
-    webSocketUrl = "ws://$host:$websocketPort/app/$webSocketKey";
+    deviceManager = DeviceManager();
+    apiClient = ApiClient();
+    webSocketClient = WebSocketClient();
 
     JustAudioMediaKit.protocolWhitelist = ["http", "https", "file"];
     JustAudioMediaKit.title = 'Saken';
     JustAudioMediaKit.ensureInitialized();
 
     // Fetch relevant device identifier, then register it
-    getDeviceIdentifier().then((value) {
-      deviceId = value;
-      registerDevice(deviceId);
+    deviceManager.getDeviceIdentifier().then((value) {
+      deviceManager.registerDevice(value, apiClient);
     });
 
     // Actually fetch the song list
     refresh();
 
     // Let the WebSocket know we're here and we're ready
-    subscribe();
+    registerWebSocket();
 
     _audioPlayer = AudioPlayer();
 
@@ -129,62 +120,63 @@ class PageManager {
       // played when we queue another. Oddly, this only happens on
       // web and introducing this on mobile & desktop causes regressions
       // on syncing.
-      if (_audioPlayer.playing && kIsWeb) {
+      if ((_audioPlayer.playing) && kIsWeb) {
         _audioPlayer.stop();
       }
 
-      _audioPlayer.setUrl('$apiUrl/play/$path', preload: false).then((
-        value,
-      ) async {
-        songMetadataNotifier.value = MetadataNotifier(
-          album: songListNotifier.value.songList[index].album,
-          artist: songListNotifier.value.songList[index].artist,
-          title: songListNotifier.value.songList[index].title,
-        );
+      _audioPlayer
+          .setUrl('${apiClient.apiUrl}/play/$path', preload: false)
+          .then((value) async {
+            songMetadataNotifier.value = MetadataNotifier(
+              album: songListNotifier.value.songList[index].album,
+              artist: songListNotifier.value.songList[index].artist,
+              title: songListNotifier.value.songList[index].title,
+            );
 
-        if (syncing && syncedDevice != deviceId[1] && origin == null) {
-          await queueOnExternalDevice(
-            path,
-            syncedDevice,
-          ).then((_) => play(origin: origin));
-        } else {
-          play(origin: origin);
-        }
-      });
+            if (deviceManager.isDeviceSyncing() && origin == null) {
+              await queueOnExternalDevice(
+                path,
+                deviceManager.syncedDevice,
+              ).then((_) => play(origin: origin));
+            } else {
+              play(origin: origin);
+            }
+          });
     } catch (e) {
       // Something really terrible has happened, and we shouldn't ignore it.
     }
   }
 
   void play({String? origin}) async {
-    if (syncing && origin == null) {
-      invokeDeviceCommand(
-        'play',
-        syncedDevice,
-      ).then((_) => _audioPlayer.play());
+    if (deviceManager.isDeviceSyncing() && origin == null) {
+      deviceManager
+          .invokeDeviceCommand('play', deviceManager.syncedDevice, apiClient)
+          .then((_) => _audioPlayer.play());
     } else {
       _audioPlayer.play();
     }
   }
 
   void pause({String? origin}) async {
-    if (syncing && origin == null) {
-      await invokeDeviceCommand(
-        'pause',
-        syncedDevice,
-      ).then((_) => _audioPlayer.pause());
+    if (deviceManager.isDeviceSyncing() && origin == null) {
+      await deviceManager
+          .invokeDeviceCommand('pause', deviceManager.syncedDevice, apiClient)
+          .then((_) => _audioPlayer.pause());
     } else {
       _audioPlayer.pause();
     }
   }
 
   void seek(Duration position, {String? origin}) async {
-    if (syncing && origin == null) {
-      invokeDeviceCommand(
-        'seek',
-        syncedDevice,
-        data: position,
-      ).then((_) => _audioPlayer.seek(position));
+    if (deviceManager.isDeviceSyncing() && origin == null) {
+      deviceManager
+          .invokeDeviceCommand(
+            'seek',
+            deviceManager.syncedDevice,
+            apiClient,
+            data: position,
+          )
+          .then((_) => _audioPlayer.seek(position));
     } else {
       _audioPlayer.seek(position);
     }
@@ -210,148 +202,23 @@ class PageManager {
   }
 
   void refresh() {
-    futureSongs = fetchSongs().then((value) {
+    futureSongs = apiClient.fetchSongs().then((value) {
       songListNotifier.value = SongListState(songList: value);
       return songListNotifier.value.songList;
     });
   }
 
-  void deleteSong(int index) async {
-    try {
-      var filename = songListNotifier.value.songList[index].filename;
-      var postUri = Uri.parse("$apiUrl/songs/$filename");
-      var request = http.MultipartRequest("DELETE", postUri);
-      request.send();
-    } catch (e) {
-      // Something really terrible has happened, and we shouldn't ignore it.
-    }
-  }
-
-  void updateSongMetadata(
-    int index,
-    String title,
-    String artist,
-    String album,
-  ) async {
-    try {
-      var filename = songListNotifier.value.songList[index].filename;
-      var postUri = Uri.parse("$apiUrl/songs/$filename");
-      var request = http.MultipartRequest("POST", postUri);
-
-      request.fields['title'] = title;
-      request.fields['artist'] = artist;
-      request.fields['album'] = album;
-
-      await request.send();
-    } catch (e) {
-      // Something terrible has happened.
-    }
-  }
-
-  Future<List<Song>> fetchSongs() async {
-    try {
-      final response = await http.get(Uri.parse("$apiUrl/songs"));
-
-      if (response.statusCode == 200) {
-        List<dynamic> json = jsonDecode(response.body);
-        return json.map((data) => Song.fromJson(data)).toList();
-      } else {
-        throw Exception('Failed to load song');
-      }
-    } catch (e) {
-      // Something really terrible has happened, and we shouldn't ignore it.
-    }
-    return List.empty();
-  }
-
-  Future<MemoryImage?> getAlbumArt(int index) async {
-    try {
-      final filename = songListNotifier.value.songList[index].filename;
-      final response = await http.get(Uri.parse("$apiUrl/art/$filename"));
-
-      if (response.statusCode == 200) {
-        return MemoryImage(response.bodyBytes);
-      } else {
-        return null;
-      }
-    } catch (e) {
-      // Something really terrible has happened, and we shouldn't ignore it.
-    }
-    return null;
-  }
-
-  Future<void> uploadSong() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.audio,
-      withData: false,
-      withReadStream: true,
-    );
-
-    if (result?.files.first != null) {
-      final file = result!.files.first;
-
-      try {
-        var postUri = Uri.parse("$apiUrl/songs");
-        var request = http.MultipartRequest("POST", postUri);
-        request.files.add(
-          http.MultipartFile(
-            'file',
-            http.ByteStream(file.readStream!),
-            file.size,
-            filename: "file", // Won't be read, but we need this somehow.
-          ),
-        );
-
-        await request.send();
-      } catch (e) {
-        // Something really terrible has happened, and we shouldn't ignore it.
-      }
-    } else {
-      // User canceled the picker
-    }
-  }
-
   Future<void> queueOnExternalDevice(String filename, String targetId) async {
     try {
-      var postUri = Uri.parse("$apiUrl/devices/$targetId");
+      var postUri = Uri.parse("${apiClient.apiUrl}/devices/$targetId");
       var request = http.MultipartRequest("POST", postUri);
 
       request.fields['reason'] = "queue";
-      request.fields['origin'] = deviceId[1];
+      request.fields['origin'] = deviceManager.getUniqueId();
       request.fields['key'] = targetId;
       request.fields['filename'] = filename;
 
       await request.send();
-    } catch (e) {
-      // More fire, yay.
-    }
-  }
-
-  Future<void> invokeDeviceCommand(
-    String command,
-    String targetId, {
-    dynamic data,
-  }) async {
-    // Return early if the targetId is somehow the same as the device ID,
-    // or when the user cancelled the device selection dialogue.
-    if ((deviceId[1] == targetId) || (targetId == "unknown")) return;
-
-    try {
-      var postUri = Uri.parse("$apiUrl/devices/$targetId");
-      var request = http.MultipartRequest("POST", postUri);
-
-      request.fields['reason'] = command;
-      request.fields['origin'] = deviceId[1];
-      request.fields['key'] = targetId;
-      request.fields['filename'] = "unknown";
-      if (data != null) request.fields['extra'] = data.toString();
-
-      await request.send().then((_) {
-        if (command == "sync") {
-          syncing = true;
-          syncedDevice = targetId;
-        }
-      });
     } catch (e) {
       // More fire, yay.
     }
@@ -362,14 +229,14 @@ class PageManager {
     bool syncMenu,
   ) async {
     try {
-      final response = await http.get(Uri.parse("$apiUrl/devices"));
+      final response = await http.get(Uri.parse("${apiClient.apiUrl}/devices"));
       if (response.statusCode == 200 && context.mounted) {
         List<Widget> devices = <Widget>[];
         List<dynamic> json = jsonDecode(response.body);
         String choice = "";
 
         for (var value in json) {
-          if (value['key'] == deviceId[1]) continue;
+          if (value['key'] == deviceManager.getUniqueId()) continue;
 
           IconData deviceIcon = Icons.web_rounded;
 
@@ -400,7 +267,7 @@ class PageManager {
           );
         }
 
-        if (!syncing || !syncMenu) {
+        if (!deviceManager.isDeviceSyncing() || !syncMenu) {
           await showDialog<String>(
             context: context,
             builder: (BuildContext context) {
@@ -431,7 +298,7 @@ class PageManager {
                 content: const Text("Stop synchronizing with remote device?"),
               );
             },
-          ).then((value) => choice = value ?? syncedDevice);
+          ).then((value) => choice = value ?? deviceManager.syncedDevice);
         }
 
         return choice;
@@ -486,7 +353,9 @@ class PageManager {
         showMetadataInputDialog(context, index);
         break;
       case 'delete':
-        deleteSong(index);
+        await apiClient.deleteSong(
+          songListNotifier.value.songList[index].filename,
+        );
         break;
       case null:
         // dialog dismissed
@@ -547,8 +416,8 @@ class PageManager {
             ElevatedButton(
               child: const Text('OK'),
               onPressed: () async {
-                updateSongMetadata(
-                  index,
+                apiClient.updateSongMetadata(
+                  songListNotifier.value.songList[index].filename,
                   titleTextEditingController.text,
                   artistTextEditingController.text,
                   albumTextEditingController.text,
@@ -630,24 +499,20 @@ class PageManager {
   }
 
   void setServerHost(String url) {
-    host = url;
-    apiUrl = "http://$host:$apiPort/api";
-    webSocketUrl = "ws://$host:$websocketPort/app/$webSocketKey";
+    apiClient.setApiHost(url);
+    webSocketClient.setWebSocketUrl(url, "8080");
 
     // Re-initialize our connection
-    getDeviceIdentifier().then((value) {
-      deviceId = value;
-      registerDevice(deviceId);
+    deviceManager.getDeviceIdentifier().then((value) {
+      deviceManager.registerDevice(value, apiClient);
     });
-    subscribe();
+    registerWebSocket();
     refresh();
   }
 
-  void subscribe() async {
-    final channel = WebSocketChannel.connect(Uri.parse(webSocketUrl));
-
+  void registerWebSocket() async {
     try {
-      await channel.ready;
+      await webSocketClient.connect();
 
       final updatesSubscription = {
         "event": "pusher:subscribe",
@@ -657,178 +522,130 @@ class PageManager {
         "event": "pusher:subscribe",
         "data": {"channel": "device-controls"},
       };
-      channel.sink.add(jsonEncode(updatesSubscription));
-      channel.sink.add(jsonEncode(controlsSubscription));
-      channel.stream.listen(
-        cancelOnError: true,
-        (message) async {
-          final data = jsonDecode(message);
 
-          if (data['channel'] == 'songs-updates') {
-            final eventData = jsonDecode(data['data']);
-            switch (eventData['message']) {
-              case 'update':
-                // Generic update message. Refresh immediately.
-                refresh();
-                break;
-              case 'delete':
-                songListNotifier.value.songList.removeWhere(
-                  (item) => item.filename == eventData['filename'],
-                );
-                // This is so dumb, but whatever.
-                songListNotifier.value = SongListState(
-                  songList: songListNotifier.value.songList,
-                );
-                break;
-            }
-          } else if (data['channel'] == 'device-controls') {
-            final eventData = jsonDecode(data['data']);
+      await webSocketClient.subscribe(updatesSubscription);
+      await webSocketClient.subscribe(controlsSubscription);
 
-            if (deviceId.isNotEmpty) {
-              var origin = eventData['origin'] == deviceId[1]
-                  ? null
-                  : eventData['origin'];
+      List<String> socketChannels = ['songs-updates', 'device-controls'];
+      List<String> events = [
+        'update',
+        'delete',
+        'pause',
+        'play',
+        'queue',
+        'seek',
+        'sync-req',
+        'sync-ok',
+        'sync-no',
+        'sync-end',
+      ];
 
-              if (eventData['deviceId'] == deviceId[1]) {
-                switch (eventData['message']) {
-                  case 'pause':
-                    pause(origin: origin);
-                    break;
-                  case 'play':
-                    play(origin: origin);
-                    break;
-                  case 'queue':
-                    var filename = eventData['filename'];
-                    var index = songListNotifier.value.songList.indexWhere(
-                      (item) => item.filename == eventData['filename'],
+      await webSocketClient.listenTo(socketChannels, events, (
+        String channel,
+        dynamic eventData,
+      ) async {
+        if (channel == 'songs-updates') {
+          switch (eventData['message']) {
+            case 'update':
+              // Generic update message. Refresh immediately.
+              refresh();
+              break;
+            case 'delete':
+              songListNotifier.value.songList.removeWhere(
+                (item) => item.filename == eventData['filename'],
+              );
+              // This is so dumb, but whatever.
+              songListNotifier.value = SongListState(
+                songList: songListNotifier.value.songList,
+              );
+              break;
+          }
+        } else if (channel == 'device-controls') {
+          if (deviceManager.deviceId.isNotEmpty) {
+            var origin = eventData['origin'] == deviceManager.getUniqueId()
+                ? null
+                : eventData['origin'];
+
+            if (eventData['deviceId'] == deviceManager.getUniqueId()) {
+              switch (eventData['message']) {
+                case 'pause':
+                  pause(origin: origin);
+                  break;
+                case 'play':
+                  play(origin: origin);
+                  break;
+                case 'queue':
+                  var filename = eventData['filename'];
+                  var index = songListNotifier.value.songList.indexWhere(
+                    (item) => item.filename == eventData['filename'],
+                  );
+                  queue(filename, index, origin: origin);
+                  break;
+                case 'seek':
+                  if (eventData['extra'] != null) {
+                    seek(parseDuration(eventData['extra']), origin: origin);
+                  }
+                case 'sync-req':
+                  // We received a sync request. Prompt the user first.
+                  if (deviceManager.isDeviceSyncing()) {
+                    // We're already synced, reject the request.
+                    deviceManager.invokeDeviceCommand(
+                      'sync-no',
+                      origin,
+                      apiClient,
                     );
-                    queue(filename, index, origin: origin);
-                    break;
-                  case 'seek':
-                    if (eventData['extra'] != null) {
-                      seek(parseDuration(eventData['extra']), origin: origin);
-                    }
-                  case 'sync-req':
-                    // We received a sync request. Prompt the user first.
-                    if (syncing) {
-                      // We're already synced, reject the request.
-                      invokeDeviceCommand('sync-no', origin);
-                    } else if (origin != null &&
-                        NavigationService.navigatorKey.currentContext != null) {
-                      await showSyncConfirmationDialog(
-                        NavigationService.navigatorKey.currentContext!,
-                        origin,
-                      ).then((accepted) {
-                        if (accepted!) {
-                          invokeDeviceCommand('sync-ok', origin);
-                        } else {
-                          invokeDeviceCommand('sync-no', origin);
-                        }
-                      });
-                    }
-                  case 'sync-ok':
-                    // Our sync request got accepted, initialize the variables.
-                    try {
-                      if (!syncing) {
-                        syncing = true;
-                        syncedDevice = eventData['origin'];
-
-                        // Tell our origin that we're okay.
-                        invokeDeviceCommand('sync-ok', eventData['origin']);
+                  } else if (origin != null &&
+                      NavigationService.navigatorKey.currentContext != null) {
+                    await showSyncConfirmationDialog(
+                      NavigationService.navigatorKey.currentContext!,
+                      origin,
+                    ).then((accepted) {
+                      if (accepted != null && accepted) {
+                        deviceManager.invokeDeviceCommand(
+                          'sync-ok',
+                          origin,
+                          apiClient,
+                        );
+                      } else {
+                        deviceManager.invokeDeviceCommand(
+                          'sync-no',
+                          origin,
+                          apiClient,
+                        );
                       }
-                    } catch (e) {
-                      // We should be fine.
+                    });
+                  }
+                case 'sync-ok':
+                  // Our sync request got accepted, initialize the variables.
+                  try {
+                    if (!deviceManager.isDeviceSyncing()) {
+                      deviceManager.syncing = true;
+                      deviceManager.syncedDevice = eventData['origin'];
+
+                      // Tell our origin that we're okay.
+                      deviceManager.invokeDeviceCommand(
+                        'sync-ok',
+                        eventData['origin'],
+                        apiClient,
+                      );
                     }
-                    break;
-                  case 'sync-no':
-                  case 'sync-end':
-                    syncing = false;
-                    syncedDevice = "";
-                    break;
-                }
+                  } catch (e) {
+                    // We should be fine.
+                  }
+                  break;
+                case 'sync-no':
+                case 'sync-end':
+                  deviceManager.syncing = false;
+                  deviceManager.syncedDevice = "";
+                  break;
               }
             }
           }
-
-          // Listen on ping and return a pong
-          if (message.toString().contains('ping')) {
-            channel.sink.add(json.encode({"event": "pusher:pong"}));
-          }
-        },
-        onDone: () {
-          print('Connection closed.');
-        },
-        onError: (error) {
-          print(error);
-        },
-      );
+        }
+      });
     } catch (error) {
       // Something really bad happened.
     }
-  }
-
-  void registerDevice(List<String> value) async {
-    try {
-      var postUri = Uri.parse("$apiUrl/devices");
-      var request = http.MultipartRequest("POST", postUri);
-
-      request.fields['nickname'] = value[0];
-      request.fields['key'] = value[1];
-      request.fields['device_type'] = value[2];
-      request.fields['current_song'] = "Unknown"; // Can't be an empty string.
-
-      await request.send();
-    } catch (e) {
-      // Something terrible has happened.
-    }
-  }
-
-  Future<List<String>> getDeviceIdentifier() async {
-    String deviceName = "unknown";
-    String deviceIdentifier = "unknown";
-    String deviceType = "unknown";
-    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-
-    if (kIsWeb) {
-      // The web doesnt have a device UID, so use a combination fingerprint as an example
-      WebBrowserInfo webInfo = await deviceInfo.webBrowserInfo;
-      deviceName = "${webInfo.browserName.name} on ${webInfo.platform}";
-      deviceIdentifier =
-          "${webInfo.browserName.name}:${webInfo.hardwareConcurrency.toString()}${webInfo.platform.toString()}${webInfo.maxTouchPoints.toString()}";
-      deviceType = "web";
-    } else if (Platform.isAndroid) {
-      AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-      deviceName = androidInfo.name;
-      deviceIdentifier = "${androidInfo.name}:${androidInfo.model}";
-      deviceType = "mobile";
-    } else if (Platform.isIOS) {
-      IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
-      deviceName = iosInfo.name;
-      deviceIdentifier = "${iosInfo.name}:${iosInfo.model}";
-      deviceType = "mobile";
-    } else if (Platform.isLinux) {
-      LinuxDeviceInfo linuxInfo = await deviceInfo.linuxInfo;
-      deviceName = linuxInfo.id;
-      deviceIdentifier = "${linuxInfo.id}:${linuxInfo.machineId}";
-      deviceType = "pc";
-    } else if (Platform.isWindows) {
-      WindowsDeviceInfo windowsInfo = await deviceInfo.windowsInfo;
-      deviceName = windowsInfo.computerName;
-      deviceIdentifier = "${windowsInfo.computerName}:${windowsInfo.deviceId}";
-      deviceType = "pc";
-    } else if (Platform.isMacOS) {
-      MacOsDeviceInfo macInfo = await deviceInfo.macOsInfo;
-      deviceName = macInfo.computerName;
-      deviceIdentifier = "${macInfo.computerName}:${macInfo.systemGUID}";
-      deviceType = "pc";
-    }
-    return [deviceName, deviceIdentifier, deviceType];
-  }
-
-  void stopSync() async {
-    invokeDeviceCommand('sync-end', syncedDevice);
-    syncing = false;
-    syncedDevice = "";
   }
 }
 
