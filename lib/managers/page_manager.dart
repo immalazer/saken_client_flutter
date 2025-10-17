@@ -58,11 +58,8 @@ class PageManager {
       deviceManager.registerDevice(value, apiClient);
     });
 
-    // Actually fetch the song list
-    refresh();
-
-    // Let the WebSocket know we're here and we're ready
-    registerWebSocket();
+    // Start the connection.
+    await reconnect();
 
     _audioPlayer = AudioPlayer();
 
@@ -498,7 +495,7 @@ class PageManager {
     );
   }
 
-  void setServerHost(String url) {
+  Future<void> setServerHost(String url) async {
     apiClient.setApiHost(url);
     webSocketClient.setWebSocketUrl(url, "8080");
 
@@ -506,11 +503,15 @@ class PageManager {
     deviceManager.getDeviceIdentifier().then((value) {
       deviceManager.registerDevice(value, apiClient);
     });
-    registerWebSocket();
+    await reconnect();
+  }
+
+  Future<void> reconnect() async {
+    await registerWebSocket();
     refresh();
   }
 
-  void registerWebSocket() async {
+  Future<void> registerWebSocket() async {
     try {
       await webSocketClient.connect();
 

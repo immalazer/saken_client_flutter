@@ -235,6 +235,9 @@ class _MyAppState extends State<MyApp> {
                               _pageManager.setServerHost(resultLabel);
                             }
                             break;
+                          case 'reconnect':
+                            _pageManager.reconnect();
+                            break;
                         }
                       },
                       itemBuilder: (BuildContext context) {
@@ -250,6 +253,10 @@ class _MyAppState extends State<MyApp> {
                           PopupMenuItem<String>(
                             value: 'server',
                             child: Text('Server'),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'reconnect',
+                            child: Text('Reconnect'),
                           ),
                         ];
                       },
