@@ -1,4 +1,4 @@
-package com.example.saken
+package com.immalazer.saken
 
 import io.flutter.embedding.android.FlutterActivity
 

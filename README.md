@@ -1,16 +1,13 @@
 # saken
 
-A new Flutter project.
+Saken, a distributed network-based music player made in 2 days.
+
+So it's still in **alpha**.
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+You should probably have the saken-server set up. This application relies heavily on it being set up.
 
-A few resources to get you started if this is your first Flutter project:
+## Compatibility
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Saken should work with every platform that Flutter supports, including web browsers. However, file format support may depend heavily on the implementation provided by the system running Saken.
