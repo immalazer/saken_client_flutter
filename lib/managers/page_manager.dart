@@ -530,6 +530,7 @@ class PageManager {
 
       List<String> socketChannels = ['songs-updates', 'device-controls'];
       List<String> events = [
+        'add',
         'update',
         'delete',
         'pause',
@@ -548,11 +549,25 @@ class PageManager {
       ) async {
         if (channel == 'songs-updates') {
           switch (eventData['message']) {
-            case 'update':
+            case 'add':
               // Generic update message. Refresh immediately.
               await apiClient.getSong(eventData['filename']).then((value) {
                 if (value != null) {
                   songListNotifier.value.songList.add(value);
+                  songListNotifier.value.songList.sort();
+                  songListNotifier.value = SongListState(
+                    songList: songListNotifier.value.songList,
+                  );
+                }
+              });
+              break;
+            case 'update':
+              var index = songListNotifier.value.songList.indexWhere(
+                (item) => item.filename == eventData['filename'],
+              );
+              await apiClient.getSong(eventData['filename']).then((value) {
+                if (value != null) {
+                  songListNotifier.value.songList[index] = value;
                   songListNotifier.value.songList.sort();
                   songListNotifier.value = SongListState(
                     songList: songListNotifier.value.songList,
