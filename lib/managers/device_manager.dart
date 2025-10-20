@@ -51,7 +51,6 @@ class DeviceManager {
     requests['nickname'] = value[0];
     requests['key'] = value[1];
     requests['device_type'] = value[2];
-    requests['current_song'] = "Unknown"; // Can't be an empty string.
 
     apiClient.sendPostRequest('devices', requests);
 
