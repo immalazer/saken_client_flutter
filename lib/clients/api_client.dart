@@ -124,7 +124,7 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> sendPostRequest(
+  Future<Map<String, dynamic>?> sendPostRequest(
     String apiPath,
     Map<String, String> requests,
   ) async {
@@ -136,9 +136,13 @@ class ApiClient {
         request.fields[key] = value;
       });
 
-      await request.send();
+      final streamedResponse = await request.send();
+
+      var response = await http.Response.fromStream(streamedResponse);
+      return jsonDecode(response.body) as Map<String, dynamic>;
     } catch (e) {
       // Something terrible has happened.
+      return null;
     }
   }
 }

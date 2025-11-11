@@ -46,6 +46,7 @@ dependencies:
   web_socket_channel: ^3.0.3
   mime: ^2.0.0
   device_info_plus: ^12.1.0
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:

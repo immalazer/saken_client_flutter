@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:saken/clients/api_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceManager {
   List<String> deviceId = <String>[];
@@ -46,21 +47,29 @@ class DeviceManager {
   }
 
   Future<void> registerDevice(List<String> value, ApiClient apiClient) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
     Map<String, String> requests = {};
 
     requests['nickname'] = value[0];
     requests['key'] = value[1];
     requests['device_type'] = value[2];
 
-    apiClient.sendPostRequest('devices', requests);
-
-    // Update our local deviceId value.
-    deviceId = value;
+    await apiClient.sendPostRequest('devices', requests).then((json) {
+      // Update our local deviceId value.
+      // If it's still unknown, then just assume we never had one set.
+      if (value[1] == 'unknown') {
+        prefs.setString('deviceId', json?['uuid']);
+      } else {
+        deviceId = value;
+      }
+    });
   }
 
   Future<List<String>> getDeviceIdentifier() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
     String deviceName = "unknown";
-    String deviceIdentifier = "unknown";
+    String deviceIdentifier = prefs.getString('deviceId') ?? "unknown";
     String deviceType = "unknown";
     DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
 
@@ -68,33 +77,26 @@ class DeviceManager {
       // The web doesnt have a device UID, so use a combination fingerprint as an example
       WebBrowserInfo webInfo = await deviceInfo.webBrowserInfo;
       deviceName = "${webInfo.browserName.name} on ${webInfo.platform}";
-      deviceIdentifier =
-          "${webInfo.browserName.name}:${webInfo.hardwareConcurrency.toString()}${webInfo.platform.toString()}${webInfo.maxTouchPoints.toString()}";
       deviceType = "web";
     } else if (Platform.isAndroid) {
       AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
       deviceName = androidInfo.name;
-      deviceIdentifier = "${androidInfo.name}:${androidInfo.model}";
       deviceType = "mobile";
     } else if (Platform.isIOS) {
       IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
       deviceName = iosInfo.name;
-      deviceIdentifier = "${iosInfo.name}:${iosInfo.model}";
       deviceType = "mobile";
     } else if (Platform.isLinux) {
       LinuxDeviceInfo linuxInfo = await deviceInfo.linuxInfo;
       deviceName = linuxInfo.id;
-      deviceIdentifier = "${linuxInfo.id}:${linuxInfo.machineId}";
       deviceType = "pc";
     } else if (Platform.isWindows) {
       WindowsDeviceInfo windowsInfo = await deviceInfo.windowsInfo;
       deviceName = windowsInfo.computerName;
-      deviceIdentifier = "${windowsInfo.computerName}:${windowsInfo.deviceId}";
       deviceType = "pc";
     } else if (Platform.isMacOS) {
       MacOsDeviceInfo macInfo = await deviceInfo.macOsInfo;
       deviceName = macInfo.computerName;
-      deviceIdentifier = "${macInfo.computerName}:${macInfo.systemGUID}";
       deviceType = "pc";
     }
     return [deviceName, deviceIdentifier, deviceType];
