@@ -1,13 +1,13 @@
 class Song implements Comparable<Song> {
   final String title;
-  final String artist;
+  final String artists;
   final String album;
   final String duration;
   final String filename;
 
   const Song({
     required this.title,
-    required this.artist,
+    required this.artists,
     required this.album,
     required this.duration,
     required this.filename,
@@ -23,21 +23,21 @@ class Song implements Comparable<Song> {
     }
 
     // If titles are the same, compare by artist
-    return artist.toLowerCase().compareTo(other.artist.toLowerCase());
+    return artists.toLowerCase().compareTo(other.artists.toLowerCase());
   }
 
   factory Song.fromJson(Map<String, dynamic> json) {
     return switch (json) {
       {
         'title': String title,
-        'artist': String artist,
+        'artists': String artists,
         'album': String album,
         'duration': String duration,
         'filename': String filename,
       } =>
         Song(
           title: title,
-          artist: artist,
+          artists: artists,
           album: album,
           duration: duration,
           filename: filename,

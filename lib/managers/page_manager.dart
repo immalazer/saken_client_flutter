@@ -126,7 +126,7 @@ class PageManager {
           .then((value) async {
             songMetadataNotifier.value = MetadataNotifier(
               album: songListNotifier.value.songList[index].album,
-              artist: songListNotifier.value.songList[index].artist,
+              artist: songListNotifier.value.songList[index].artists,
               title: songListNotifier.value.songList[index].title,
             );
 
@@ -367,7 +367,7 @@ class PageManager {
       text: songToEdit.title,
     );
     final artistTextEditingController = TextEditingController(
-      text: songToEdit.artist,
+      text: songToEdit.artists,
     );
     final albumTextEditingController = TextEditingController(
       text: songToEdit.album,
@@ -393,7 +393,7 @@ class PageManager {
                 controller: artistTextEditingController,
                 decoration: InputDecoration(
                   labelText: "Artist",
-                  hintText: songToEdit.artist,
+                  hintText: songToEdit.artists,
                 ),
               ),
               SizedBox(height: 14),

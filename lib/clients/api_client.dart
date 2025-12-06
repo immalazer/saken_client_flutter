@@ -40,7 +40,7 @@ class ApiClient {
       final response = await http.get(Uri.parse("$apiUrl/songs/$filename"));
 
       if (response.statusCode == 200) {
-        final json = jsonDecode(response.body)[0] as Map<String, dynamic>;
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
         return Song.fromJson(json);
       } else {
         return null;

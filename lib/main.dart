@@ -91,7 +91,7 @@ class _MyAppState extends State<MyApp> {
                                 ),
                                 title: Text(value.songList[index].title),
                                 subtitle: Text(
-                                  "${value.songList[index].artist}\n${value.songList[index].album}",
+                                  "${value.songList[index].artists}\n${value.songList[index].album}",
                                   style: TextStyle(
                                     fontWeight: FontWeight.w200,
                                     fontSize: 13.5,
