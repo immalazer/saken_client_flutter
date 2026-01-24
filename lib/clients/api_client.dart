@@ -16,6 +16,10 @@ class ApiClient {
     this.host = host;
   }
 
+  void setApiPort(String port) {
+    this.apiPort = port;
+  }
+
   void updateSongMetadata(
     String filename,
     String title,

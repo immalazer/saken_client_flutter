@@ -58,6 +58,11 @@ class PageManager {
     JustAudioMediaKit.title = 'Saken';
     JustAudioMediaKit.ensureInitialized();
 
+    // For web apps, auto-detect server host from the current URL
+    if (kIsWeb) {
+      _initializeWebServerHost();
+    }
+
     // Start the connection.
     await reconnect();
 
@@ -225,6 +230,16 @@ class PageManager {
   void _stopPeriodicSyncAdjustment() {
     _syncOffsetAdjustmentTimer?.cancel();
     _syncOffsetAdjustmentTimer = null;
+  }
+
+  void _initializeWebServerHost() {
+    try {
+      final Uri currentUri = Uri.base;
+      final String host = currentUri.host;
+      apiClient.setApiHost(host);
+    } catch (e) {
+      print('Failed to detect server host from URL: $e');
+    }
   }
 
   void skip(int direction) {
