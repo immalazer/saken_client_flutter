@@ -29,7 +29,7 @@ class ApiClient {
       requests['artist'] = artist;
       requests['album'] = album;
 
-      sendPostRequest("songs/$filename", requests);
+      sendAPIRequest('POST', "songs/$filename", requests);
     } catch (e) {
       // Something terrible has happened.
     }
@@ -124,13 +124,40 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>?> sendPostRequest(
+  Future<bool> isLimitedAccess(String deviceKey) async {
+    try {
+      final response = await http.get(
+        Uri.parse("$apiUrl/devices/permission"),
+        headers: {
+          'X-Device-Key': deviceKey,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        var permission = jsonDecode(response.body)['message'];
+        if (permission == 100) {
+          return true;
+        } else {
+          return false;
+        }
+      } else {
+        return true;
+      }
+
+    } catch (e) {
+      // Something really terrible has happened, and we shouldn't ignore it.
+    }
+    return true;
+  }
+
+  Future<Map<String, dynamic>?> sendAPIRequest(
+    String requestType,
     String apiPath,
     Map<String, String> requests,
   ) async {
     try {
       var postUri = Uri.parse("$apiUrl/$apiPath");
-      var request = http.MultipartRequest("POST", postUri);
+      var request = http.MultipartRequest(requestType, postUri);
 
       requests.forEach((key, value) {
         request.fields[key] = value;

@@ -58,45 +58,53 @@ class _MyAppState extends State<MyApp> {
                         itemBuilder: (BuildContext context, int index) {
                           return Column(
                             children: [
-                              ListTile(
-                                onLongPress: () {
-                                  _pageManager.showSongOptionDialog(
-                                    context,
-                                    index,
+                              ValueListenableBuilder(
+                                valueListenable: _pageManager.isLimitedAccess,
+                                builder: (context, isLimited, _) {
+                                  return ListTile(
+                                    onLongPress: isLimited
+                                        ? null
+                                        : () {
+                                            _pageManager.showSongOptionDialog(
+                                              context,
+                                              index,
+                                            );
+                                          },
+                                    onTap: () {
+                                      _pageManager.queue(
+                                        value.songList[index].filename,
+                                        index,
+                                      );
+                                    },
+                                    leading: FutureBuilder(
+                                      future: _pageManager.apiClient
+                                          .getAlbumArt(
+                                            value.songList[index].filename,
+                                          ),
+                                      builder: (context, snapshot) {
+                                        if (snapshot.hasData) {
+                                          return CircleAvatar(
+                                            foregroundImage: snapshot.data,
+                                          );
+                                        } else {
+                                          return CircleAvatar(
+                                            child: Text(
+                                              value.songList[index].title[0],
+                                            ),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    title: Text(value.songList[index].title),
+                                    subtitle: Text(
+                                      "${value.songList[index].artists}\n${value.songList[index].album}",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w200,
+                                        fontSize: 13.5,
+                                      ),
+                                    ),
                                   );
                                 },
-                                onTap: () {
-                                  _pageManager.queue(
-                                    value.songList[index].filename,
-                                    index,
-                                  );
-                                },
-                                leading: FutureBuilder(
-                                  future: _pageManager.apiClient.getAlbumArt(
-                                    value.songList[index].filename,
-                                  ),
-                                  builder: (context, snapshot) {
-                                    if (snapshot.hasData) {
-                                      return CircleAvatar(
-                                        foregroundImage: snapshot.data,
-                                      );
-                                    } else {
-                                      return CircleAvatar(
-                                        child: Text(
-                                          value.songList[index].title[0],
-                                        ),
-                                      );
-                                    }
-                                  },
-                                ),
-                                title: Text(value.songList[index].title),
-                                subtitle: Text(
-                                  "${value.songList[index].artists}\n${value.songList[index].album}",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w200,
-                                    fontSize: 13.5,
-                                  ),
-                                ),
                               ),
                               Divider(),
                             ],
@@ -141,28 +149,37 @@ class _MyAppState extends State<MyApp> {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    IconButton(
-                      icon: Icon(Icons.sync_alt_rounded),
-                      tooltip: "Sync to device",
-                      onPressed: () {
-                        _pageManager.showDeviceSelectionDialog(context, true).then((
-                          value,
-                        ) {
-                          if (value != 'cancel') {
-                            // Don't send sync request if we are already synced.
-                            if (!_pageManager.deviceManager.isDeviceSyncing()) {
-                              _pageManager.deviceManager.invokeDeviceCommand(
-                                'sync-req',
-                                value,
-                                _pageManager.apiClient,
-                              );
-                            }
-                          } else {
-                            _pageManager.deviceManager.stopSync(
-                              _pageManager.apiClient,
-                            );
-                          }
-                        });
+                    ValueListenableBuilder(
+                      valueListenable: _pageManager.isLimitedAccess,
+                      builder: (context, isLimited, _) {
+                        return IconButton(
+                          icon: Icon(Icons.sync_alt_rounded),
+                          tooltip: "Sync to device",
+                          onPressed: isLimited
+                              ? null
+                              : () {
+                                  _pageManager
+                                      .showDeviceSelectionDialog(context, true)
+                                      .then((value) {
+                                        if (value != 'cancel') {
+                                          // Don't send sync request if we are already synced.
+                                          if (!_pageManager.deviceManager
+                                              .isDeviceSyncing()) {
+                                            _pageManager.deviceManager
+                                                .invokeDeviceCommand(
+                                                  'sync-req',
+                                                  value,
+                                                  _pageManager.apiClient,
+                                                );
+                                          }
+                                        } else {
+                                          _pageManager.deviceManager.stopSync(
+                                            _pageManager.apiClient,
+                                          );
+                                        }
+                                      });
+                                },
+                        );
                       },
                     ),
                     const Spacer(),
@@ -248,6 +265,7 @@ class _MyAppState extends State<MyApp> {
                           ),
                           PopupMenuItem<String>(
                             value: 'upload',
+                            enabled: !_pageManager.isLimitedAccess.value,
                             child: Text('Upload'),
                           ),
                           PopupMenuItem<String>(

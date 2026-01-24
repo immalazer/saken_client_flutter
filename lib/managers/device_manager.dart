@@ -43,7 +43,7 @@ class DeviceManager {
     requests['filename'] = "unknown";
     if (data != null) requests['extra'] = data.toString();
 
-    apiClient.sendPostRequest("devices/$targetId", requests);
+    apiClient.sendAPIRequest('POST', "devices/$targetId", requests);
   }
 
   Future<void> registerDevice(List<String> value, ApiClient apiClient) async {
@@ -54,7 +54,7 @@ class DeviceManager {
     requests['key'] = value[1];
     requests['device_type'] = value[2];
 
-    await apiClient.sendPostRequest('devices', requests).then((json) {
+    await apiClient.sendAPIRequest('POST', 'devices', requests).then((json) {
       // Update our local deviceId value.
       // If it's still unknown, then just assume we never had one set.
       if (value[1] == 'unknown') {

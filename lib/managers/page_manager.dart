@@ -13,6 +13,7 @@ import 'package:saken/clients/websocket_client.dart';
 import '../model/song_model.dart';
 
 class PageManager {
+  ValueNotifier isLimitedAccess = ValueNotifier(true);
   int currentIndex = 0;
 
   late Future<List<Song>> futureSongs;
@@ -52,11 +53,6 @@ class PageManager {
     JustAudioMediaKit.protocolWhitelist = ["http", "https", "file"];
     JustAudioMediaKit.title = 'Saken';
     JustAudioMediaKit.ensureInitialized();
-
-    // Fetch relevant device identifier, then register it
-    deviceManager.getDeviceIdentifier().then((value) {
-      deviceManager.registerDevice(value, apiClient);
-    });
 
     // Start the connection.
     await reconnect();
@@ -501,15 +497,20 @@ class PageManager {
     webSocketClient.setWebSocketUrl(url, "8080");
 
     // Re-initialize our connection
-    deviceManager.getDeviceIdentifier().then((value) {
-      deviceManager.registerDevice(value, apiClient);
-    });
     await reconnect();
   }
 
   Future<void> reconnect() async {
+    await initDevice();
     await registerWebSocket();
     refresh();
+  }
+
+  Future<void> initDevice() async {
+    deviceManager.getDeviceIdentifier().then((value) async {
+      deviceManager.registerDevice(value, apiClient);
+      isLimitedAccess.value = await apiClient.isLimitedAccess(value[1]);
+    });
   }
 
   Future<void> registerWebSocket() async {
