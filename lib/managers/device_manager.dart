@@ -9,6 +9,10 @@ class DeviceManager {
   List<String> deviceId = <String>[];
   bool syncing = false;
   String syncedDevice = "";
+  
+  DateTime? syncInitiatedTime;
+  Duration playbackOffset = Duration.zero;
+  Duration estimatedNetworkLatency = Duration.zero;
 
   DeviceManager();
 
@@ -24,6 +28,9 @@ class DeviceManager {
     invokeDeviceCommand('sync-end', syncedDevice, apiClient);
     syncing = false;
     syncedDevice = "";
+    syncInitiatedTime = null;
+    playbackOffset = Duration.zero;
+    estimatedNetworkLatency = Duration.zero;
   }
 
   Future<void> invokeDeviceCommand(
@@ -36,14 +43,22 @@ class DeviceManager {
     // or when the user cancelled the device selection dialogue.
     if ((deviceId[1] == targetId) || (targetId == "unknown")) return;
 
+    final requestTime = DateTime.now();
+    
     Map<String, String> requests = {};
     requests['reason'] = command;
     requests['origin'] = deviceId[1];
     requests['key'] = targetId;
     requests['filename'] = "unknown";
+    requests['timestamp'] = requestTime.millisecondsSinceEpoch.toString();
     if (data != null) requests['extra'] = data.toString();
 
-    apiClient.sendAPIRequest('POST', "devices/$targetId", requests);
+    await apiClient.sendAPIRequest('POST', "devices/$targetId", requests).then((_) {
+      // Update estimated network latency based on round-trip time
+      final responseTime = DateTime.now();
+      final latency = responseTime.difference(requestTime);
+      estimatedNetworkLatency = (estimatedNetworkLatency + latency) ~/ 2;
+    });
   }
 
   Future<void> registerDevice(List<String> value, ApiClient apiClient) async {

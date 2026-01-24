@@ -41,6 +41,9 @@ class PageManager {
   final buttonNotifier = ValueNotifier<ButtonState>(ButtonState.paused);
 
   late AudioPlayer _audioPlayer;
+  
+  // Periodic sync adjustment timer
+  Timer? _syncOffsetAdjustmentTimer;
 
   PageManager() {
     _init();
@@ -178,6 +181,50 @@ class PageManager {
 
   void dispose() {
     _audioPlayer.dispose();
+    _syncOffsetAdjustmentTimer?.cancel();
+  }
+
+  Duration _calculateSyncAdjustedPosition(Duration currentPosition) {
+    if (!deviceManager.isDeviceSyncing()) {
+      return currentPosition;
+    }
+    
+    final timeSinceSyncStart = DateTime.now().difference(deviceManager.syncInitiatedTime ?? DateTime.now());
+    final adjustedPosition = currentPosition - deviceManager.playbackOffset - deviceManager.estimatedNetworkLatency;
+    
+    return adjustedPosition > Duration.zero ? adjustedPosition : Duration.zero;
+  }
+
+  void _startPeriodicSyncAdjustment() {
+    _syncOffsetAdjustmentTimer?.cancel();
+    
+    if (!deviceManager.isDeviceSyncing()) {
+      return;
+    }
+
+    // Check for drift every 5 seconds
+    _syncOffsetAdjustmentTimer = Timer.periodic(Duration(seconds: 5), (_) async {
+      if (!deviceManager.isDeviceSyncing()) {
+        _syncOffsetAdjustmentTimer?.cancel();
+        return;
+      }
+
+      try {
+        // Request playback position from synced device to check offset
+        await deviceManager.invokeDeviceCommand(
+          'status',
+          deviceManager.syncedDevice,
+          apiClient,
+        );
+      } catch (e) {
+        // Attempt later
+      }
+    });
+  }
+
+  void _stopPeriodicSyncAdjustment() {
+    _syncOffsetAdjustmentTimer?.cancel();
+    _syncOffsetAdjustmentTimer = null;
   }
 
   void skip(int direction) {
@@ -672,6 +719,7 @@ class PageManager {
         'play',
         'queue',
         'seek',
+        'offset-adjust',
         'sync-req',
         'sync-ok',
         'sync-no',
@@ -745,6 +793,11 @@ class PageManager {
                   if (eventData['extra'] != null) {
                     seek(parseDuration(eventData['extra']), origin: origin);
                   }
+                case 'offset-adjust':
+                  // We got a playback offset adjustment from synced device
+                  if (deviceManager.isDeviceSyncing() && eventData['extra'] != null) {
+                    deviceManager.playbackOffset = parseDuration(eventData['extra']);
+                  }
                 case 'sync-req':
                   // We received a sync request. Prompt the user first.
                   if (deviceManager.isDeviceSyncing()) {
@@ -776,11 +829,16 @@ class PageManager {
                     });
                   }
                 case 'sync-ok':
-                  // Our sync request got accepted, initialize the variables.
+                  // Our sync request got accepted, initialize the variables and start offset tracking.
                   try {
                     if (!deviceManager.isDeviceSyncing()) {
                       deviceManager.syncing = true;
                       deviceManager.syncedDevice = eventData['origin'];
+                      deviceManager.syncInitiatedTime = DateTime.now();
+                      deviceManager.playbackOffset = Duration.zero;
+                      
+                      // Start periodic sync adjustment to prevent drift
+                      _startPeriodicSyncAdjustment();
 
                       // Tell our origin that we're okay.
                       deviceManager.invokeDeviceCommand(
@@ -794,9 +852,18 @@ class PageManager {
                   }
                   break;
                 case 'sync-no':
-                case 'sync-end':
+                  _stopPeriodicSyncAdjustment();
                   deviceManager.syncing = false;
                   deviceManager.syncedDevice = "";
+                  deviceManager.syncInitiatedTime = null;
+                  deviceManager.playbackOffset = Duration.zero;
+                  break;
+                case 'sync-end':
+                  _stopPeriodicSyncAdjustment();
+                  deviceManager.syncing = false;
+                  deviceManager.syncedDevice = "";
+                  deviceManager.syncInitiatedTime = null;
+                  deviceManager.playbackOffset = Duration.zero;
                   break;
               }
             }
