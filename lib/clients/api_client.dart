@@ -127,7 +127,7 @@ class ApiClient {
   Future<bool> isLimitedAccess(String deviceKey) async {
     try {
       final response = await http.get(
-        Uri.parse("$apiUrl/devices/permission"),
+        Uri.parse("$apiUrl/devices/$deviceKey/permission"),
         headers: {
           'X-Device-Key': deviceKey,
         },
@@ -153,7 +153,7 @@ class ApiClient {
   Future<bool> isSuperUser(String deviceKey) async {
     try {
       final response = await http.get(
-        Uri.parse("$apiUrl/devices/permission"),
+        Uri.parse("$apiUrl/devices/$deviceKey/permission"),
         headers: {
           'X-Device-Key': deviceKey,
         },
