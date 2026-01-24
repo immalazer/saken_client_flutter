@@ -225,7 +225,8 @@ class PageManager {
   ) async {
     try {
       final response = await http.get(Uri.parse("${apiClient.apiUrl}/devices"));
-      if (response.statusCode == 200 && context.mounted) {
+      final currentContext = context.mounted ? context : NavigationService.navigatorKey.currentContext;
+      if (response.statusCode == 200 && currentContext != null && currentContext.mounted) {
         List<Widget> devices = <Widget>[];
         List<dynamic> json = jsonDecode(response.body);
         String choice = "";
@@ -249,7 +250,7 @@ class PageManager {
           devices.add(
             SimpleDialogOption(
               onPressed: () {
-                Navigator.pop(context, value['key']);
+                Navigator.pop(currentContext, value['key']);
               },
               child: Row(
                 children: <Widget>[
@@ -264,7 +265,7 @@ class PageManager {
 
         if (!deviceManager.isDeviceSyncing() || !syncMenu) {
           await showDialog<String>(
-            context: context,
+            context: currentContext,
             builder: (BuildContext context) {
               return SimpleDialog(
                 title: Text("Select device"),
@@ -274,7 +275,7 @@ class PageManager {
           ).then((value) => choice = value ?? "unknown");
         } else {
           await showDialog<String>(
-            context: context,
+            context: currentContext,
             builder: (BuildContext context) {
               return AlertDialog(
                 title: const Text("End sync"),
@@ -531,7 +532,8 @@ class PageManager {
   Future<void> showUserManagementDialog(BuildContext context) async {
     try {
       final response = await http.get(Uri.parse("${apiClient.apiUrl}/devices"));
-      if (response.statusCode == 200 && context.mounted) {
+      final currentContext = context.mounted ? context : NavigationService.navigatorKey.currentContext;
+      if (response.statusCode == 200 && currentContext != null && currentContext.mounted) {
         List<dynamic> json = jsonDecode(response.body);
 
         // Prepare local state for selection
@@ -541,7 +543,7 @@ class PageManager {
         }
 
         await showDialog<void>(
-          context: context,
+          context: currentContext,
           builder: (context) {
             return StatefulBuilder(
               builder: (context, setState) {
@@ -599,8 +601,8 @@ class PageManager {
                                           final requesterKey = deviceManager.getUniqueId();
                                           final ok = await apiClient
                                               .setDevicePermission(key, newPerm, requesterKey);
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(context)
+                                          if (currentContext.mounted) {
+                                            ScaffoldMessenger.of(currentContext)
                                                 .showSnackBar(
                                               SnackBar(
                                                 content: Text(ok
