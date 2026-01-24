@@ -70,10 +70,14 @@ class DeviceManager {
     requests['device_type'] = value[2];
 
     await apiClient.sendAPIRequest('POST', 'devices', requests).then((json) {
-      // Update our local deviceId value.
-      // If it's still unknown, then just assume we never had one set.
+      // If this is still unknown, then use the UUID returned from the API
       if (value[1] == 'unknown') {
-        prefs.setString('deviceId', json?['uuid']);
+        final uuid = json?['uuid'];
+        if (uuid != null) {
+          prefs.setString('deviceId', uuid);
+          // Update deviceId with the new UUID
+          deviceId = [value[0], uuid, value[2]];
+        }
       } else {
         deviceId = value;
       }

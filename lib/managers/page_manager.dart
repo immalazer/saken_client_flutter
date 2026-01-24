@@ -236,7 +236,7 @@ class PageManager {
     try {
       final Uri currentUri = Uri.base;
       final String host = currentUri.host;
-      apiClient.setApiHost(host);
+      setServerHost(host);
     } catch (e) {
       print('Failed to detect server host from URL: $e');
     }
@@ -286,7 +286,12 @@ class PageManager {
     bool syncMenu,
   ) async {
     try {
-      final response = await http.get(Uri.parse("${apiClient.apiUrl}/devices"));
+      final response = await http.get(
+        Uri.parse("${apiClient.apiUrl}/devices"),
+        headers: {
+          'X-Device-Key': deviceManager.getUniqueId(),
+        },
+      );
       final currentContext = context.mounted ? context : NavigationService.navigatorKey.currentContext;
       if (response.statusCode == 200 && currentContext != null && currentContext.mounted) {
         List<Widget> devices = <Widget>[];
@@ -571,11 +576,13 @@ class PageManager {
   }
 
   Future<void> initDevice() async {
-    deviceManager.getDeviceIdentifier().then((value) async {
-      deviceManager.registerDevice(value, apiClient);
-      isLimitedAccess.value = await apiClient.isLimitedAccess(value[1]);
-      isSuperUser.value = await apiClient.isSuperUser(value[1]);
-    });
+    final value = await deviceManager.getDeviceIdentifier();
+    await deviceManager.registerDevice(value, apiClient);
+    
+    // Use the updated device ID from the manager after registration
+    final deviceKey = deviceManager.deviceId[1];
+    isLimitedAccess.value = await apiClient.isLimitedAccess(deviceKey);
+    isSuperUser.value = await apiClient.isSuperUser(deviceKey);
   }
 
   String _permissionLabel(int permission) {
@@ -593,7 +600,12 @@ class PageManager {
 
   Future<void> showUserManagementDialog(BuildContext context) async {
     try {
-      final response = await http.get(Uri.parse("${apiClient.apiUrl}/devices"));
+      final response = await http.get(
+        Uri.parse("${apiClient.apiUrl}/devices"),
+        headers: {
+          'X-Device-Key': deviceManager.getUniqueId(),
+        },
+      );
       final currentContext = context.mounted ? context : NavigationService.navigatorKey.currentContext;
       if (response.statusCode == 200 && currentContext != null && currentContext.mounted) {
         List<dynamic> json = jsonDecode(response.body);
