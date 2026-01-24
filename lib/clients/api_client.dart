@@ -150,6 +150,56 @@ class ApiClient {
     return true;
   }
 
+  Future<bool> isSuperUser(String deviceKey) async {
+    try {
+      final response = await http.get(
+        Uri.parse("$apiUrl/devices/permission"),
+        headers: {
+          'X-Device-Key': deviceKey,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        var permission = jsonDecode(response.body)['message'];
+        if (permission == 111) {
+          return true;
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+
+    } catch (e) {
+      // On error assume not superuser
+    }
+    return false;
+  }
+
+  Future<bool> setDevicePermission(String deviceKey, int permission, String requesterKey) async {
+    try {
+      final url = "$apiUrl/devices/$deviceKey/permission";
+      final body = jsonEncode({
+        'permission': permission.toString()
+      });
+      
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Key': requesterKey,
+        },
+        body: body,
+      );
+      
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      // Something terrible happened again.
+    }
+    // If this goes here, then the permission change failed.
+    return false;
+  }
+
   Future<Map<String, dynamic>?> sendAPIRequest(
     String requestType,
     String apiPath,

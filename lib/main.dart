@@ -230,53 +230,66 @@ class _MyAppState extends State<MyApp> {
                       ],
                     ),
                     const Spacer(),
-                    PopupMenuButton(
-                      icon: Icon(Icons.more_vert_rounded),
-                      tooltip: "More options",
-                      onSelected: (value) async {
-                        switch (value) {
-                          case 'refresh':
-                            _pageManager.refresh();
-                            break;
-                          case 'upload':
-                            await _pageManager.apiClient.uploadSong();
-                            break;
-                          case 'server':
-                            var resultLabel = await _pageManager
-                                .showTextInputDialog(
-                                  context,
-                                  "Configure server host",
-                                  _pageManager.apiClient.host,
-                                );
-                            if (resultLabel != null) {
-                              _pageManager.setServerHost(resultLabel);
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _pageManager.isSuperUser,
+                      builder: (context, isSuper, _) {
+                        return PopupMenuButton(
+                          icon: Icon(Icons.more_vert_rounded),
+                          tooltip: "More options",
+                          onSelected: (value) async {
+                            switch (value) {
+                              case 'refresh':
+                                _pageManager.refresh();
+                                break;
+                              case 'upload':
+                                await _pageManager.apiClient.uploadSong();
+                                break;
+                              case 'server':
+                                var resultLabel = await _pageManager
+                                    .showTextInputDialog(
+                                      context,
+                                      "Configure server host",
+                                      _pageManager.apiClient.host,
+                                    );
+                                if (resultLabel != null) {
+                                  _pageManager.setServerHost(resultLabel);
+                                }
+                                break;
+                              case 'manage_users':
+                                await _pageManager.showUserManagementDialog(context);
+                                break;
+                              case 'reconnect':
+                                _pageManager.reconnect();
+                                break;
                             }
-                            break;
-                          case 'reconnect':
-                            _pageManager.reconnect();
-                            break;
-                        }
-                      },
-                      itemBuilder: (BuildContext context) {
-                        return [
-                          PopupMenuItem<String>(
-                            value: 'refresh',
-                            child: Text('Refresh'),
-                          ),
-                          PopupMenuItem<String>(
-                            value: 'upload',
-                            enabled: !_pageManager.isLimitedAccess.value,
-                            child: Text('Upload'),
-                          ),
-                          PopupMenuItem<String>(
-                            value: 'server',
-                            child: Text('Server'),
-                          ),
-                          PopupMenuItem<String>(
-                            value: 'reconnect',
-                            child: Text('Reconnect'),
-                          ),
-                        ];
+                          },
+                          itemBuilder: (BuildContext context) {
+                            return [
+                              PopupMenuItem<String>(
+                                value: 'refresh',
+                                child: Text('Refresh'),
+                              ),
+                              PopupMenuItem<String>(
+                                value: 'upload',
+                                enabled: !_pageManager.isLimitedAccess.value,
+                                child: Text('Upload'),
+                              ),
+                              PopupMenuItem<String>(
+                                value: 'server',
+                                child: Text('Server'),
+                              ),
+                              PopupMenuItem<String>(
+                                value: 'manage_users',
+                                enabled: isSuper,
+                                child: Text('Manage Users'),
+                              ),
+                              PopupMenuItem<String>(
+                                value: 'reconnect',
+                                child: Text('Reconnect'),
+                              ),
+                            ];
+                          },
+                        );
                       },
                     ),
                   ],

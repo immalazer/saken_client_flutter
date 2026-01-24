@@ -14,6 +14,7 @@ import '../model/song_model.dart';
 
 class PageManager {
   ValueNotifier isLimitedAccess = ValueNotifier(true);
+  ValueNotifier<bool> isSuperUser = ValueNotifier(false);
   int currentIndex = 0;
 
   late Future<List<Song>> futureSongs;
@@ -510,7 +511,138 @@ class PageManager {
     deviceManager.getDeviceIdentifier().then((value) async {
       deviceManager.registerDevice(value, apiClient);
       isLimitedAccess.value = await apiClient.isLimitedAccess(value[1]);
+      isSuperUser.value = await apiClient.isSuperUser(value[1]);
     });
+  }
+
+  String _permissionLabel(int permission) {
+    switch (permission) {
+      case 100:
+        return 'Read Only';
+      case 110:
+        return 'Read/Write';
+      case 111:
+        return 'Superuser';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  Future<void> showUserManagementDialog(BuildContext context) async {
+    try {
+      final response = await http.get(Uri.parse("${apiClient.apiUrl}/devices"));
+      if (response.statusCode == 200 && context.mounted) {
+        List<dynamic> json = jsonDecode(response.body);
+
+        // Prepare local state for selection
+        Map<String, int> selectedPermissions = {};
+        for (var d in json) {
+          selectedPermissions[d['key']] = d['permission'] ?? 100;
+        }
+
+        await showDialog<void>(
+          context: context,
+          builder: (context) {
+            return StatefulBuilder(
+              builder: (context, setState) {
+                return AlertDialog(
+                  title: const Text("Manage users"),
+                  content: SizedBox(
+                    width: 500,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: json.map<Widget>((device) {
+                          final key = device['key'];
+                          final nickname = device['nickname'] ?? key;
+                          final permission = device['permission'] ?? 100;
+                          final isSelf = key == deviceManager.getUniqueId();
+                          final isOtherSuper = permission == 111;
+
+                          final editable = !isSelf && !isOtherSuper;
+
+                          final statusLabel = isSelf
+                              ? 'This device'
+                              : isOtherSuper
+                                  ? 'Superuser'
+                                  : _permissionLabel(permission);
+
+                          return ListTile(
+                            title: Text(nickname),
+                            subtitle: Text(key),
+                            trailing: editable
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      DropdownButton<int>(
+                                        value: selectedPermissions[key],
+                                        items: const [
+                                          DropdownMenuItem<int>(
+                                            value: 100,
+                                            child: Text('Read Only'),
+                                          ),
+                                          DropdownMenuItem<int>(
+                                            value: 110,
+                                            child: Text('Read/Write'),
+                                          ),
+                                        ],
+                                        onChanged: (v) {
+                                          setState(() {
+                                            selectedPermissions[key] = v!;
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ElevatedButton(
+                                        onPressed: () async {
+                                          final newPerm = selectedPermissions[key]!;
+                                          final requesterKey = deviceManager.getUniqueId();
+                                          final ok = await apiClient
+                                              .setDevicePermission(key, newPerm, requesterKey);
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              SnackBar(
+                                                content: Text(ok
+                                                    ? 'Permission updated for $nickname'
+                                                    : 'Failed to update permission'),
+                                              ),
+                                            );
+                                          }
+
+                                          if (ok) {
+                                            // update local view
+                                            setState(() {
+                                              device['permission'] = newPerm;
+                                            });
+                                          }
+                                        },
+                                        child: const Text('Save'),
+                                      ),
+                                    ],
+                                  )
+                                : Text(statusLabel,
+                                    style: Theme.of(context).textTheme.bodySmall),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                  actions: <Widget>[
+                    ElevatedButton(
+                      child: const Text('Close'),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 
   Future<void> registerWebSocket() async {
