@@ -269,20 +269,20 @@ class _MyAppState extends State<MyApp> {
                                 value: 'refresh',
                                 child: Text('Refresh'),
                               ),
-                              PopupMenuItem<String>(
-                                value: 'upload',
-                                enabled: !_pageManager.isLimitedAccess.value,
-                                child: Text('Upload'),
-                              ),
+                              if (!_pageManager.isLimitedAccess.value)
+                                PopupMenuItem<String>(
+                                  value: 'upload',
+                                  child: Text('Upload'),
+                                ),
                               PopupMenuItem<String>(
                                 value: 'server',
                                 child: Text('Server'),
                               ),
-                              PopupMenuItem<String>(
-                                value: 'manage_users',
-                                enabled: isSuper,
-                                child: Text('Manage Users'),
-                              ),
+                              if (isSuper)
+                                PopupMenuItem<String>(
+                                  value: 'manage_users',
+                                  child: Text('Manage Users'),
+                                ),
                               PopupMenuItem<String>(
                                 value: 'reconnect',
                                 child: Text('Reconnect'),
