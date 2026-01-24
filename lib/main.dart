@@ -149,37 +149,30 @@ class _MyAppState extends State<MyApp> {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    ValueListenableBuilder(
-                      valueListenable: _pageManager.isLimitedAccess,
-                      builder: (context, isLimited, _) {
-                        return IconButton(
-                          icon: Icon(Icons.sync_alt_rounded),
-                          tooltip: "Sync to device",
-                          onPressed: isLimited
-                              ? null
-                              : () {
-                                  _pageManager
-                                      .showDeviceSelectionDialog(context, true)
-                                      .then((value) {
-                                        if (value != 'cancel') {
-                                          // Don't send sync request if we are already synced.
-                                          if (!_pageManager.deviceManager
-                                              .isDeviceSyncing()) {
-                                            _pageManager.deviceManager
-                                                .invokeDeviceCommand(
-                                                  'sync-req',
-                                                  value,
-                                                  _pageManager.apiClient,
-                                                );
-                                          }
-                                        } else {
-                                          _pageManager.deviceManager.stopSync(
-                                            _pageManager.apiClient,
-                                          );
-                                        }
-                                      });
-                                },
-                        );
+                    IconButton(
+                      icon: Icon(Icons.sync_alt_rounded),
+                      tooltip: "Sync to device",
+                      onPressed: () {
+                        _pageManager
+                            .showDeviceSelectionDialog(context, true)
+                            .then((value) {
+                              if (value != 'cancel') {
+                                // Don't send sync request if we are already synced.
+                                if (!_pageManager.deviceManager
+                                    .isDeviceSyncing()) {
+                                  _pageManager.deviceManager
+                                      .invokeDeviceCommand(
+                                        'sync-req',
+                                        value,
+                                        _pageManager.apiClient,
+                                      );
+                                }
+                              } else {
+                                _pageManager.deviceManager.stopSync(
+                                  _pageManager.apiClient,
+                                );
+                              }
+                            });
                       },
                     ),
                     const Spacer(),
