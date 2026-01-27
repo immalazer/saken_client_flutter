@@ -86,7 +86,7 @@ class ApiClient {
     return null;
   }
 
-  Future<void> uploadSong() async {
+  Future<void> uploadSong(String deviceKey) async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.audio,
       withData: false,
@@ -99,6 +99,8 @@ class ApiClient {
       try {
         var postUri = Uri.parse("$apiUrl/songs");
         var request = http.MultipartRequest("POST", postUri);
+
+        request.headers['X-Device-Key'] = deviceKey;
 
         request.files.add(
           http.MultipartFile(
@@ -208,6 +210,7 @@ class ApiClient {
     String requestType,
     String apiPath,
     Map<String, String> requests,
+    [Map<String, String>? headers]
   ) async {
     try {
       var postUri = Uri.parse("$apiUrl/$apiPath");
@@ -216,6 +219,8 @@ class ApiClient {
       requests.forEach((key, value) {
         request.fields[key] = value;
       });
+
+      request.headers.addAll(headers ?? {});
 
       final streamedResponse = await request.send();
 

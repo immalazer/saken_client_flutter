@@ -235,7 +235,7 @@ class _MyAppState extends State<MyApp> {
                                 _pageManager.refresh();
                                 break;
                               case 'upload':
-                                await _pageManager.apiClient.uploadSong();
+                                await _pageManager.apiClient.uploadSong(_pageManager.deviceManager.deviceId[1]);
                                 break;
                               case 'server':
                                 var resultLabel = await _pageManager
